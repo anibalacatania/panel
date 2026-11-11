@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as datos from 'datos';
 import { ordenNatural, tamaniosSesiones, generarDiseno } from './diseno.js';
+import { TECNICAS, nombreTecnica, etiquetasRata, parsearDescriptores, bloquesDe } from './tecnicas.js';
+import { analizar } from './analisis.js';
 
 // ---- almacenamiento local seguro (copias para mostrar la app al instante)
 const LS = {
@@ -64,12 +66,15 @@ function PanelApp() {
   const [buffer, setBuffer] = useState({});
   const [hechasLocal, setHechasLocal] = useState({});
   const [cerrado, setCerrado] = useState(false);
+  const [faltan, setFaltan] = useState([]);
   const pendN = usePendientes();
   const pendientes = Math.max(pendN, progPend ? 1 : 0);
 
   const estudio = (estudios || []).find(e => e.id === eid) || null;
   const atributos = estudio ? estudio.atributos : [];
   const unicoEstudio = estudios && estudios.length === 1;
+  const esRata = estudio && estudio.tecnica === 'rata';
+  const bloques = useMemo(() => (estudio ? bloquesDe(estudio, `${eid}|${valuador}`) : []), [estudio, eid, valuador]);
 
   const elegirEstudio = (e) => {
     setEid(e.id); setVista('inicio'); setValuador('');
@@ -132,6 +137,15 @@ function PanelApp() {
 
   const enviarMuestra = () => {
     const f = filas[idx];
+    if (esRata) {
+      const sinNivel = atributos.filter(a => valores[a] === -1);
+      if (sinNivel.length) {
+        setFaltan(sinNivel);
+        const el = document.getElementById('attr-' + sinNivel[0]); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+    }
+    setFaltan([]);
     const vals = {}; atributos.forEach(a => { vals[a] = Number(valores[a] ?? 0); });
     datos.guardarRespuesta(eid, { Sesion: sesion.Sesion, Valuador: valuador, Orden: f.Orden, CodigoProducto: f.CodigoProducto, valores: vals })
       .catch(e => { if (e && e.code === 'permission-denied') setCerrado(true); });
@@ -145,12 +159,13 @@ function PanelApp() {
     if (sig === -1) { setVista('finSesion'); window.scrollTo(0, 0); return; }
     setIdx(sig); setValores(nb[filas[sig].Orden] || ceros()); window.scrollTo(0, 0);
   };
+  const cambiar = (a, v) => { setValores(prev => ({ ...prev, [a]: v })); if (v !== -1) setFaltan(x => x.filter(y => y !== a)); };
 
   const volver = () => {
     if (idx === 0) return;
     setBuffer(b => ({ ...b, [filas[idx].Orden]: { ...valores } }));
     const p = idx - 1;
-    setIdx(p); setValores(buffer[filas[p].Orden] || ceros()); window.scrollTo(0, 0);
+    setFaltan([]); setIdx(p); setValores(buffer[filas[p].Orden] || ceros()); window.scrollTo(0, 0);
   };
 
   const AvisoCerrado = () => cerrado
@@ -180,7 +195,7 @@ function PanelApp() {
               <button key={e.id} onClick={() => elegirEstudio(e)}
                 className="w-full text-left bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl p-4">
                 <p className="font-bold text-lg">{e.nombre}</p>
-                <p className="text-sm text-purple-100">{e.sesiones.length} sesiones · {e.panelistas.length} panelistas</p>
+                <p className="text-sm text-purple-100">{(TECNICAS[e.tecnica] || TECNICAS.descriptiva).corto} · {e.sesiones.length} sesiones · {e.panelistas.length} panelistas</p>
               </button>))}
             </div>}
       </Tarjeta>
@@ -194,7 +209,7 @@ function PanelApp() {
           <div className="w-14 h-14 mx-auto text-purple-600 mb-3"><Wine/></div>
           <h1 className="text-3xl font-bold text-gray-800 mb-1">{estudio.nombre}</h1>
           <p className="text-gray-600">Seleccioná tu número de panelista</p>
-          <p className="text-xs text-gray-400 mt-1">{estudio.sesiones.length} sesiones • {atributos.length} atributos</p>
+          <p className="text-xs text-gray-400 mt-1">{nombreTecnica(estudio.tecnica)} • {estudio.sesiones.length} sesiones • {atributos.length} {esRata ? 'descriptores' : 'atributos'}</p>
         </div>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-96 overflow-y-auto">
           {estudio.panelistas.map(v => (
@@ -303,25 +318,15 @@ function PanelApp() {
         </div>
 
         <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-5 mb-5 border border-white/20">
-          <h3 className="text-xl font-bold text-white mb-5">Evaluación de Atributos</h3>
-          <div className="space-y-5">
-            {atributos.map(attr => (
-              <div key={attr} className="bg-gradient-to-r from-slate-800/80 to-slate-700/80 rounded-lg p-5 border-2 border-slate-600/50 shadow-lg">
-                <div className="flex justify-between items-center mb-3">
-                  <label className="text-white font-semibold text-lg">{attr}</label>
-                  <span className="bg-gradient-to-r from-pink-500 to-rose-500 text-white px-5 py-2 rounded-full font-bold text-xl min-w-[70px] text-center shadow-lg">
-                    {Number(valores[attr] ?? 0).toFixed(1)}
-                  </span>
-                </div>
-                <input type="range" min="0" max="10" step="0.1" value={valores[attr] ?? 0}
-                  onChange={e => setValores(prev => ({ ...prev, [attr]: Number(e.target.value) }))}
-                  className="w-full h-4 rounded-lg appearance-none cursor-pointer"
-                  style={{ background: `linear-gradient(to right,#f59e0b 0%,#f59e0b ${(valores[attr] || 0) * 10}%,#cbd5e1 ${(valores[attr] || 0) * 10}%,#cbd5e1 100%)` }} />
-                <div className="flex justify-between text-gray-200 font-semibold text-sm mt-2"><span>0</span><span>5</span><span>10</span></div>
-              </div>
-            ))}
-          </div>
+          {esRata
+            ? <EvaluacionRata bloques={bloques} valores={valores} cambiar={cambiar} etiquetas={etiquetasRata(estudio.escala)} faltan={faltan} />
+            : <EvaluacionDescriptiva bloques={bloques} valores={valores} cambiar={cambiar} />}
         </div>
+        {faltan.length > 0 && (
+          <p className="mb-3 bg-red-500/90 text-white font-semibold p-3 rounded-xl text-center">
+            Falta indicar la intensidad de: {faltan.join(', ')}
+          </p>
+        )}
 
         <div className="space-y-3">
           <button onClick={enviarMuestra}
@@ -333,6 +338,93 @@ function PanelApp() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---- formularios de evaluación por técnica
+const TituloGrupo = ({ b }) => (
+  <>
+    {b.mostrarG1 && <h3 className="text-2xl font-bold text-white mt-6 first:mt-0 mb-2 border-b border-white/20 pb-1">{b.g1}</h3>}
+    {b.g2 && <h4 className="text-sm font-bold uppercase tracking-wide text-purple-200 mt-4 mb-2">{b.g2}</h4>}
+  </>
+);
+
+function EvaluacionDescriptiva({ bloques, valores, cambiar }) {
+  return (
+    <div>
+      <h3 className="text-xl font-bold text-white mb-5">Evaluación de Atributos</h3>
+      {bloques.map((b, i) => (
+        <div key={i}>
+          <TituloGrupo b={b}/>
+          <div className="space-y-5 mb-5">
+            {b.attrs.map(({ k, n }) => (
+              <div key={k} className="bg-gradient-to-r from-slate-800/80 to-slate-700/80 rounded-lg p-5 border-2 border-slate-600/50 shadow-lg">
+                <div className="flex justify-between items-center mb-3">
+                  <label className="text-white font-semibold text-lg">{n}</label>
+                  <span className="bg-gradient-to-r from-pink-500 to-rose-500 text-white px-5 py-2 rounded-full font-bold text-xl min-w-[70px] text-center shadow-lg">
+                    {Number(valores[k] ?? 0).toFixed(1)}
+                  </span>
+                </div>
+                <input type="range" min="0" max="10" step="0.1" value={valores[k] ?? 0}
+                  onChange={e => cambiar(k, Number(e.target.value))}
+                  className="w-full h-4 rounded-lg appearance-none cursor-pointer"
+                  style={{ background: `linear-gradient(to right,#f59e0b 0%,#f59e0b ${(valores[k] || 0) * 10}%,#cbd5e1 ${(valores[k] || 0) * 10}%,#cbd5e1 100%)` }} />
+                <div className="flex justify-between text-gray-200 font-semibold text-sm mt-2"><span>0</span><span>5</span><span>10</span></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// RATA: tocar el descriptor si está presente → aparece la escala de intensidad.
+// Valores: 0 = no marcado, -1 = marcado sin intensidad (no se puede enviar), 1..N = intensidad
+function EvaluacionRata({ bloques, valores, cambiar, etiquetas, faltan }) {
+  const marcados = Object.values(valores).filter(v => v !== 0 && v != null).length;
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+        <h3 className="text-xl font-bold text-white">¿Qué descriptores percibís?</h3>
+        <span className="text-purple-200 text-sm">{marcados} marcado{marcados === 1 ? '' : 's'}</span>
+      </div>
+      <p className="text-purple-100 text-sm mb-4">Tocá cada descriptor que esté <b>presente</b> y después indicá su intensidad. Si no está presente, dejalo sin marcar.</p>
+      {bloques.map((b, i) => (
+        <div key={i}>
+          <TituloGrupo b={b}/>
+          <div className="grid sm:grid-cols-2 gap-2 mb-4">
+            {b.attrs.map(({ k, n }) => {
+              const v = valores[k] ?? 0, on = v !== 0, falta = faltan.includes(k);
+              return (
+                <div key={k} id={'attr-' + k}
+                  className={`rounded-xl border-2 transition-all ${on ? 'bg-white border-pink-400 shadow-lg' : 'bg-slate-800/70 border-slate-600/60'} ${falta ? 'ring-4 ring-red-500' : ''}`}>
+                  <button type="button" onClick={() => cambiar(k, on ? 0 : -1)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left">
+                    <span className={`w-6 h-6 shrink-0 rounded-md border-2 flex items-center justify-center font-bold ${on ? 'bg-pink-500 border-pink-500 text-white' : 'border-slate-400'}`}>{on ? '✓' : ''}</span>
+                    <span className={`font-semibold text-lg ${on ? 'text-gray-900' : 'text-white'}`}>{n}</span>
+                  </button>
+                  {on && (
+                    <div className="px-3 pb-3">
+                      <div className={`grid gap-1`} style={{ gridTemplateColumns: `repeat(${etiquetas.length}, minmax(0, 1fr))` }}>
+                        {etiquetas.map((et, j) => (
+                          <button key={j} type="button" onClick={() => cambiar(k, j + 1)}
+                            className={`py-2 rounded-lg font-bold text-sm border-2 ${v === j + 1 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-transparent' : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-purple-400'}`}>
+                            {et}
+                          </button>
+                        ))}
+                      </div>
+                      {etiquetas.length > 3 && <div className="flex justify-between text-xs text-gray-500 mt-1 px-1"><span>poco intenso</span><span>muy intenso</span></div>}
+                      {v === -1 && <p className={`text-xs mt-1 ${falta ? 'text-red-600 font-bold' : 'text-gray-500'}`}>Elegí la intensidad</p>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -456,7 +548,8 @@ function ListaEstudios({ abrir, nuevo }) {
                 <p className="font-bold text-lg text-gray-800">{e.nombre}</p>
                 <span className={`text-xs font-bold px-2 py-1 rounded-full ${e.activo ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>{e.activo ? 'Activo' : 'Cerrado'}</span>
               </div>
-              <p className="text-sm text-gray-600">{e.sesiones.length} sesiones · {e.panelistas.length} panelistas · {e.atributos.length} atributos</p>
+              <p className="text-sm text-gray-600"><span className={`text-xs font-bold px-2 py-0.5 rounded-full mr-1 ${(TECNICAS[e.tecnica] || TECNICAS.descriptiva).color}`}>{(TECNICAS[e.tecnica] || TECNICAS.descriptiva).corto}</span>
+                {e.sesiones.length} sesiones · {e.panelistas.length} panelistas · {e.atributos.length} {e.tecnica === 'rata' ? 'descriptores' : 'atributos'}</p>
               {e.creado && <p className="text-xs text-gray-400 mt-1">Creado {new Date(e.creado).toLocaleDateString('es-AR')}</p>}
             </button>))}
           </div>}
@@ -474,15 +567,20 @@ function NuevoEstudio({ creado, cancelar }) {
   const [parejo, setParejo] = useState(F.parejo ?? false);
   const [semilla, setSemilla] = useState(() => F.semilla ?? (Math.floor(Math.random() * 99999) + 1));
   const [atrTxt, setAtrTxt] = useState(F.atrTxt ?? '');
-  useEffect(() => { LS.set('pf_form', { nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt }); },
-    [nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt]);
+  const [tecnica, setTecnica] = useState(F.tecnica ?? 'descriptiva');
+  const [escala, setEscala] = useState(F.escala ?? 3);
+  const [ordenAzar, setOrdenAzar] = useState(F.ordenAzar ?? false);
+  useEffect(() => { LS.set('pf_form', { nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt, tecnica, escala, ordenAzar }); },
+    [nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt, tecnica, escala, ordenAzar]);
   const [prev, setPrev] = useState(null);
   const [msg, setMsg] = useState(null);
   const [ocupado, setOcupado] = useState(false);
 
   const lineas = t => t.split(/\r?\n|\t|;/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
   const vinos = lineas(vinosTxt);
-  const atributos = lineas(atrTxt);
+  const desc = useMemo(() => parsearDescriptores(atrTxt), [atrTxt]);
+  const atributos = desc.claves;
+  const esRata = tecnica === 'rata';
   const dup = vinos.filter((v, i) => vinos.indexOf(v) !== i);
 
   const generar = () => {
@@ -491,7 +589,10 @@ function NuevoEstudio({ creado, cancelar }) {
     if (vinos.length < 1) return setMsg({ t: 'error', m: 'Pegá al menos un vino.' });
     if (dup.length) return setMsg({ t: 'error', m: 'Hay vinos repetidos: ' + [...new Set(dup)].join(', ') });
     if (vinos.some(v => v.includes('|'))) return setMsg({ t: 'error', m: 'Los nombres de vinos no pueden tener el carácter |' });
-    if (!atributos.length) return setMsg({ t: 'error', m: 'Agregá al menos un atributo.' });
+    if (!atributos.length) return setMsg({ t: 'error', m: 'Agregá al menos un descriptor.' });
+    if (desc.dup.length) return setMsg({ t: 'error', m: 'Hay descriptores repetidos en el mismo grupo: ' + desc.dup.join(', ') });
+    if (desc.malos.length) return setMsg({ t: 'error', m: 'Descriptores con el carácter | o demasiado largos: ' + desc.malos.join(', ') });
+    if (atributos.length > 300) return setMsg({ t: 'error', m: 'Máximo 300 descriptores por estudio.' });
     if (Number(porSesion) > vinos.length) return setMsg({ t: 'error', m: `No puede haber más vinos por sesión (${porSesion}) que vinos distintos (${vinos.length}): un vino no se repite dentro de una sesión.` });
     if (vinos.length * reps > 900) return setMsg({ t: 'error', m: 'Demasiadas muestras para códigos de 3 dígitos (máx. 900 vinos × repeticiones).' });
     setPrev(generarDiseno({ vinos, porSesion: Number(porSesion), reps: Number(reps), nPanelistas: Number(nPan), parejo, semilla: Number(semilla) }));
@@ -501,13 +602,14 @@ function NuevoEstudio({ creado, cancelar }) {
     setOcupado(true); setMsg(null);
     try {
       const id = await datos.crearEstudio({
-        nombre: nombre.trim(), atributos,
+        nombre: nombre.trim(), atributos, tecnica, estructura: desc.estructura,
+        escala: esRata ? Number(escala) : 3, ordenAzar,
         sesiones: prev.sesiones.map(s => ({ Sesion: s.Sesion, NMuestras: s.NMuestras, Vinos: s.Vinos })),
         panelistas: Array.from({ length: Number(nPan) }, (_, i) => 'V' + (i + 1)),
         diseno: prev.diseno,
         parametros: { vinos, reps: Number(reps), porSesion: Number(porSesion), nPanelistas: Number(nPan), parejo, semilla: Number(semilla) },
       });
-      LS.set('pf_form', { atrTxt, porSesion, reps, nPan, parejo });
+      LS.set('pf_form', { atrTxt, porSesion, reps, nPan, parejo, tecnica, escala, ordenAzar });
       creado(id);
     } catch (e) { setMsg({ t: 'error', m: textoError(e) }); }
     finally { setOcupado(false); }
@@ -517,11 +619,23 @@ function NuevoEstudio({ creado, cancelar }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-gray-800">Nuevo estudio · análisis descriptivo</h2>
+        <h2 className="text-xl font-bold text-gray-800">Nuevo estudio</h2>
         <button onClick={cancelar} className="text-sm text-gray-500 hover:underline">Cancelar</button>
       </div>
       <div className="grid lg:grid-cols-5 gap-6">
         <div className="lg:col-span-2 space-y-4">
+          <div>
+            <span className="text-sm font-semibold text-gray-700">Técnica</span>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              {[['descriptiva', 'Análisis Descriptivo Cuantitativo', 'Escala continua 0–10 para cada atributo.'],
+                ['rata', 'RATA', 'Marcar los descriptores presentes y su intensidad (bajo, medio, alto).']].map(([k, t, d]) => (
+                <button key={k} type="button" onClick={() => setTecnica(k)}
+                  className={`text-left rounded-xl border-2 p-3 ${tecnica === k ? 'border-purple-600 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}`}>
+                  <p className="font-bold text-gray-800 text-sm">{t}</p>
+                  <p className="text-xs text-gray-500 mt-1">{d}</p>
+                </button>))}
+            </div>
+          </div>
           <Campo label="Nombre del estudio">
             <input className={inp} value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Ej: Malbec 2026" />
           </Campo>
@@ -547,9 +661,25 @@ function NuevoEstudio({ creado, cancelar }) {
           <Campo label="Semilla" ayuda="Con la misma semilla y los mismos datos se obtiene exactamente el mismo diseño.">
             <input type="number" className={inp} value={semilla} onChange={e => setSemilla(e.target.value)} />
           </Campo>
-          <Campo label={`Atributos (${atributos.length})`} ayuda="Uno por línea.">
-            <textarea className={inp + ' h-40 text-sm'} value={atrTxt} onChange={e => setAtrTxt(e.target.value)} />
+          <Campo label={`${esRata ? 'Descriptores' : 'Atributos'} (${atributos.length})`}
+            ayuda={<>Uno por línea. Opcional: agrupá con títulos — <code># Aroma</code> para la modalidad y <code>## Cítricos</code> para una categoría.
+              Si un descriptor se repite en distintos grupos (ej. Limón en Aroma y en Sabor) la columna se llama “Aroma: Limón”.</>}>
+            <textarea className={inp + ' h-56 text-sm font-mono'} value={atrTxt} onChange={e => setAtrTxt(e.target.value)}
+              placeholder={'# Aroma\n## Frutal\nFrutos rojos\nCiruela\n## Especiado\nPimienta\n# Boca\nAcidez\nAmargor\nAstringencia'} />
           </Campo>
+          {esRata && (
+            <Campo label="Escala de intensidad" ayuda="Resultados: 0 = no marcado; 1, 2, 3… = intensidad elegida.">
+              <select className={inp} value={escala} onChange={e => setEscala(Number(e.target.value))}>
+                <option value={3}>3 puntos: bajo · medio · alto (0–3)</option>
+                <option value={5}>5 puntos (0–5)</option>
+              </select>
+            </Campo>
+          )}
+          <label className="flex items-start gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={ordenAzar} onChange={e => setOrdenAzar(e.target.checked)} className="w-4 h-4 mt-0.5" />
+            <span>Orden de los {esRata ? 'descriptores' : 'atributos'} al azar para cada panelista (dentro de cada grupo; los títulos quedan en su lugar).
+              Reduce el sesgo por posición en la lista.</span>
+          </label>
           <button onClick={generar} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg">Generar vista previa</button>
           <Mensaje msg={msg}/>
         </div>
@@ -561,6 +691,7 @@ function NuevoEstudio({ creado, cancelar }) {
             : <div>
                 <h2 className="text-lg font-bold text-gray-800 mb-1">Vista previa: {prev.sesiones.length} sesiones</h2>
                 <p className="text-sm text-gray-600 mb-3">
+                  <b>{nombreTecnica(tecnica)}</b> · {atributos.length} {esRata ? 'descriptores' : 'atributos'}{desc.hayGrupos ? ` en ${desc.estructura.filter(i => i.t === 'g1').length || desc.estructura.filter(i => i.t === 'g2').length} grupos` : ''} ·{' '}
                   {prev.totalMuestras} muestras ({vinos.length} vinos × {reps} rep.) · {nPan} panelistas · {prev.diseno.length} evaluaciones en total
                 </p>
                 {!balanceado && (
@@ -604,12 +735,13 @@ function EstudioAdmin({ eid, volver }) {
   };
   useEffect(() => { recargar(); }, [eid]);
   if (!est || !priv) return <div><Mensaje msg={msg}/><p className="text-gray-500">Cargando…</p></div>;
-  const tabs = [['progreso', 'Progreso'], ['servicio', 'Planilla de servicio'], ['resultados', 'Resultados'], ['config', 'Configuración']];
+  const tabs = [['progreso', 'Progreso'], ['servicio', 'Planilla de servicio'], ['analisis', 'Análisis en vivo'], ['resultados', 'Resultados'], ['config', 'Configuración']];
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 mb-3 no-print">
         <button onClick={volver} className="text-sm text-purple-700 hover:underline">← Estudios</button>
         <h2 className="text-xl font-bold text-gray-800">{est.nombre}</h2>
+        <span className={`text-xs font-bold px-2 py-1 rounded-full ${(TECNICAS[est.tecnica] || TECNICAS.descriptiva).color}`}>{nombreTecnica(est.tecnica)}</span>
         <span className={`text-xs font-bold px-2 py-1 rounded-full ${est.activo ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>{est.activo ? 'Activo' : 'Cerrado'}</span>
       </div>
       <div className="flex gap-2 border-b mb-5 no-print overflow-x-auto">
@@ -620,6 +752,7 @@ function EstudioAdmin({ eid, volver }) {
       </div>
       {tab === 'progreso' && <Progreso eid={eid} est={est} />}
       {tab === 'servicio' && <Servicio est={est} priv={priv} />}
+      {tab === 'analisis' && <Analisis eid={eid} est={est} priv={priv} />}
       {tab === 'resultados' && <Resultados eid={eid} est={est} priv={priv} />}
       {tab === 'config' && <Configuracion eid={eid} est={est} recargar={recargar} borrado={volver} />}
     </div>
@@ -722,6 +855,139 @@ function descargar(nombre, texto) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+// ---- Análisis en vivo: medias, frecuencias (RATA), ANOVA orientativa y PCA
+const estrellas = p => p == null ? '' : p < 0.001 ? '***' : p < 0.01 ? '**' : p < 0.05 ? '*' : p < 0.1 ? '·' : 'ns';
+const fmtP = p => p == null ? '—' : p < 0.001 ? '<0,001' : p.toFixed(3).replace('.', ',');
+const fmt = (x, d = 2) => Number(x).toFixed(d).replace('.', ',');
+
+function Biplot({ pca, inv1, inv2, svgRef }) {
+  const W = 640, H = 520, m = 40;
+  const s1 = inv1 ? -1 : 1, s2 = inv2 ? -1 : 1;
+  const ind = pca.ind.map(p => ({ ...p, x: p.x * s1, y: p.y * s2 }));
+  const vars = pca.vars.map(v => ({ ...v, x: v.x * s1, y: v.y * s2 }));
+  const rInd = Math.max(1e-9, ...ind.map(p => Math.hypot(p.x, p.y)));
+  const k = rInd * 0.95; // flechas (correlaciones, máx. 1) escaladas al tamaño de la nube de vinos
+  const lim = rInd * 1.25;
+  const X = x => W / 2 + (x / lim) * (W / 2 - m), Y = y => H / 2 - (y / lim) * (H / 2 - m);
+  return (
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full h-auto bg-white border rounded-lg" xmlns="http://www.w3.org/2000/svg" fontFamily="sans-serif">
+      <defs><marker id="flecha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#db2777"/></marker></defs>
+      <line x1={m} x2={W - m} y1={H / 2} y2={H / 2} stroke="#cbd5e1" strokeDasharray="4 4"/>
+      <line y1={m} y2={H - m} x1={W / 2} x2={W / 2} stroke="#cbd5e1" strokeDasharray="4 4"/>
+      <text x={W - 4} y={H / 2 + 16} textAnchor="end" fontSize="12" fill="#64748b">Dim 1 ({fmt(pca.pct[0], 1)}%)</text>
+      <text x={W / 2 + 6} y={14} fontSize="12" fill="#64748b">Dim 2 ({fmt(pca.pct[1], 1)}%)</text>
+      {vars.map(v => (
+        <g key={v.a}>
+          <line x1={X(0)} y1={Y(0)} x2={X(v.x * k)} y2={Y(v.y * k)} stroke="#db2777" strokeWidth="1.5" markerEnd="url(#flecha)" opacity="0.75"/>
+          <text x={X(v.x * k * 1.08)} y={Y(v.y * k * 1.08)} fontSize="11" fill="#be185d" textAnchor={v.x >= 0 ? 'start' : 'end'} dominantBaseline="middle">{v.a}</text>
+        </g>))}
+      {ind.map(p => (
+        <g key={p.v}>
+          <circle cx={X(p.x)} cy={Y(p.y)} r="5" fill="#4f46e5"/>
+          <text x={X(p.x) + 7} y={Y(p.y) - 7} fontSize="13" fontWeight="bold" fill="#1e1b4b">{p.v}</text>
+        </g>))}
+    </svg>
+  );
+}
+
+function Analisis({ eid, est, priv }) {
+  const [resp, setResp] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [filtro, setFiltro] = useState('todos');
+  const [sesion, setSesion] = useState('');
+  const [inv1, setInv1] = useState(false), [inv2, setInv2] = useState(false);
+  const svgRef = React.useRef(null);
+  useEffect(() => datos.observarRespuestas(eid, setResp, e => setMsg({ t: 'error', m: textoError(e) })), [eid]);
+  const esRata = est.tecnica === 'rata';
+  const res = useMemo(() => {
+    if (!resp) return null;
+    const filas = filasResultados(est, priv, resp).filter(f => !sesion || f.Sesion === sesion);
+    const base = analizar(filas, est.atributos, { rata: esRata });
+    let usar = est.atributos;
+    if (filtro === 'p05') usar = usar.filter(a => base.anova[a].p != null && base.anova[a].p < 0.05);
+    if (filtro === 'p10') usar = usar.filter(a => base.anova[a].p != null && base.anova[a].p < 0.10);
+    if (filtro === 'cit10') usar = usar.filter(a => base.vinos.some(v => base.frec[v][a] >= 0.10));
+    const final = usar.length === est.atributos.length ? base : { ...base, pca: analizar(filas, usar, { rata: esRata }).pca };
+    return { ...final, filas, usar, panelistas: new Set(filas.map(f => f.Valuador)).size };
+  }, [resp, filtro, sesion]);
+  if (!res) return <div><Mensaje msg={msg}/><p className="text-gray-500">Cargando respuestas…</p></div>;
+  const orden = [...est.atributos].sort((a, b) => (res.anova[a].p ?? 2) - (res.anova[b].p ?? 2));
+  const maxM = esRata ? (est.escala || 3) : 10;
+  const color = x => `rgba(219,39,119,${Math.min(1, x / maxM) * 0.85})`;
+  const minN = Math.min(...res.vinos.map(v => res.n[v]));
+  const bajarSVG = () => {
+    const t = new XMLSerializer().serializeToString(svgRef.current);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([t], { type: 'image/svg+xml' }));
+    a.download = est.nombre.replace(/[^\w\-]+/g, '_') + '_PCA.svg'; a.click();
+  };
+  return (
+    <div>
+      <Mensaje msg={msg}/>
+      <div className="flex flex-wrap items-center gap-3 mb-4 text-sm">
+        <span className="text-gray-700"><b>{res.filas.length}</b> evaluaciones · <b>{res.panelistas}</b> panelistas · <b>{res.vinos.length}</b> vinos</span>
+        <span className="text-xs text-emerald-600">● en vivo</span>
+        <select value={sesion} onChange={e => setSesion(e.target.value)} className="border-2 border-gray-200 rounded-lg px-2 py-1">
+          <option value="">Todas las sesiones</option>
+          {est.sesiones.map(s => <option key={s.Sesion} value={s.Sesion}>Sesión {s.Sesion}</option>)}
+        </select>
+        <select value={filtro} onChange={e => setFiltro(e.target.value)} className="border-2 border-gray-200 rounded-lg px-2 py-1">
+          <option value="todos">PCA con todos los {esRata ? 'descriptores' : 'atributos'}</option>
+          <option value="p05">Solo los que discriminan (p &lt; 0,05)</option>
+          <option value="p10">Solo los que discriminan (p &lt; 0,10)</option>
+          {esRata && <option value="cit10">Solo los citados ≥ 10% en algún vino</option>}
+        </select>
+      </div>
+      {res.vinos.length > 0 && minN < 3 && (
+        <p className="text-sm bg-amber-50 text-amber-800 p-3 rounded-lg mb-4">Todavía hay pocos datos (algún vino tiene {minN} evaluación{minN === 1 ? '' : 'es'}): los resultados van a cambiar bastante a medida que lleguen más respuestas.</p>
+      )}
+      <div className="grid xl:grid-cols-2 gap-6">
+        <div>
+          <h3 className="font-bold text-gray-800 mb-2">PCA (medias por vino, estandarizado)</h3>
+          {res.pca
+            ? <>
+                <Biplot pca={res.pca} inv1={inv1} inv2={inv2} svgRef={svgRef}/>
+                <div className="flex flex-wrap gap-4 items-center text-xs text-gray-600 mt-2">
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={inv1} onChange={e => setInv1(e.target.checked)}/> Invertir Dim 1</label>
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={inv2} onChange={e => setInv2(e.target.checked)}/> Invertir Dim 2</label>
+                  <button onClick={bajarSVG} className="underline text-purple-700">Descargar gráfico (SVG)</button>
+                  {res.pca.excluidos.length > 0 && <span>Sin variación (no entran): {res.pca.excluidos.join(', ')}</span>}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Igual que <code>FactoMineR::PCA(medias, scale.unit = TRUE)</code>. El signo de cada eje es arbitrario: si sale espejado respecto de R, usá “Invertir”.</p>
+              </>
+            : <p className="text-gray-500 border-2 border-dashed rounded-xl p-8 text-center">Se necesitan al menos 3 vinos con datos y 2 {esRata ? 'descriptores' : 'atributos'} que varíen entre vinos.</p>}
+        </div>
+        <div>
+          <h3 className="font-bold text-gray-800 mb-2">Medias por vino {esRata && <span className="font-normal text-gray-500 text-sm">(0–{est.escala || 3}; entre paréntesis, % de citación)</span>}</h3>
+          <div className="overflow-auto max-h-[560px] border rounded-lg">
+            <table className="text-xs">
+              <thead className="bg-gray-100 sticky top-0"><tr>
+                <th className="p-2 text-left sticky left-0 bg-gray-100">{esRata ? 'Descriptor' : 'Atributo'}</th>
+                {res.vinos.map(v => <th key={v} className="p-2 text-center whitespace-nowrap">{v}<div className="font-normal text-gray-500">n={res.n[v]}</div></th>)}
+                <th className="p-2 text-center">F</th><th className="p-2 text-center">p</th>
+              </tr></thead>
+              <tbody>{orden.map(a => (
+                <tr key={a} className={`border-t ${res.usar.includes(a) ? '' : 'opacity-50'}`}>
+                  <td className="p-2 font-semibold whitespace-nowrap sticky left-0 bg-white">{a}</td>
+                  {res.vinos.map(v => (
+                    <td key={v} className="p-2 text-center whitespace-nowrap" style={{ background: color(res.medias[v][a]), color: res.medias[v][a] / maxM > 0.55 ? 'white' : undefined }}>
+                      {fmt(res.medias[v][a])}{esRata && <span className="opacity-75"> ({Math.round(100 * res.frec[v][a])}%)</span>}
+                    </td>))}
+                  <td className="p-2 text-center">{res.anova[a].p == null ? '—' : isFinite(res.anova[a].F) ? fmt(res.anova[a].F) : '∞'}</td>
+                  <td className="p-2 text-center whitespace-nowrap">{fmtP(res.anova[a].p)} <b>{estrellas(res.anova[a].p)}</b></td>
+                </tr>))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            F y p: ANOVA de dos factores (vino + panelista) por {esRata ? 'descriptor, con el 0 de “no marcado” incluido, como recomiendan Meyners, Jaeger y Ares (2016)' : 'atributo'}.
+            Es orientativa para mirar en el momento; para el análisis formal usá el CSV en R. *** p&lt;0,001 · ** p&lt;0,01 · * p&lt;0,05 · “·” p&lt;0,10.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Resultados({ eid, est, priv }) {
   const [filas, setFilas] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -747,7 +1013,8 @@ function Resultados({ eid, est, priv }) {
               className={btn + ' bg-emerald-100 hover:bg-emerald-200 text-emerald-800'}>Descargar CSV (para Excel en español)</button>
             <button onClick={cargar} className={btn + ' bg-gray-100 hover:bg-gray-200'}>Actualizar</button>
           </div>
-          <p className="text-xs text-gray-500 mb-2">“Para R”: separador coma y punto decimal (read.csv). “Para Excel”: separador punto y coma y coma decimal.</p>
+          <p className="text-xs text-gray-500 mb-2">“Para R”: separador coma y punto decimal (read.csv). “Para Excel”: separador punto y coma y coma decimal.
+            {est.tecnica === 'rata' && <> En RATA cada descriptor vale 0 si no fue marcado y 1–{est.escala || 3} según la intensidad elegida.</>}</p>
           {filas.length > 0 && (
             <div className="overflow-auto max-h-[50vh] border rounded-lg">
               <table className="text-xs">

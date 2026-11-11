@@ -41,7 +41,7 @@ for (const f of r.outputFiles) {
 // 2) CSS: solo las clases de Tailwind que usa la app
 const tmp = mkdtempSync(join(tmpdir(), 'tw-'));
 const cfg = join(tmp, 'tailwind.config.cjs');
-writeFileSync(cfg, `module.exports = { content: [${JSON.stringify(join(SRC, 'app.jsx'))}, ${JSON.stringify(join(SRC, 'plantilla.html'))}] };`);
+writeFileSync(cfg, `module.exports = { content: [${JSON.stringify(join(SRC, 'app.jsx'))}, ${JSON.stringify(join(SRC, 'tecnicas.js'))}, ${JSON.stringify(join(SRC, 'plantilla.html'))}] };`);
 const salidaCss = join(tmp, 'out.css');
 execFileSync(require.resolve('tailwindcss/lib/cli.js'), ['-c', cfg, '-i', join(SRC, 'estilos.css'), '-o', salidaCss, '--minify'], { stdio: 'ignore' });
 const css = readFileSync(salidaCss, 'utf8');

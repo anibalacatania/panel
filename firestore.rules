@@ -27,7 +27,7 @@ service cloud.firestore {
         && d.Valuador is string && d.Valuador.size() <= 20
         && d.Orden is int && d.Orden >= 1 && d.Orden <= 100
         && d.CodigoProducto is string && d.CodigoProducto.size() <= 10
-        && d.valores is map && d.valores.size() <= 100
+        && d.valores is map && d.valores.size() <= 300
         && d.ts == request.time
         && r == d.Valuador + '_' + d.Sesion + '_' + string(d.Orden);
     }

@@ -138,6 +138,7 @@ function limpiarEstudio(d) {
   return {
     nombre: d.nombre || 'Estudio', tecnica: d.tecnica || 'descriptiva', activo: !!d.activo,
     atributos: d.atributos || [], sesiones: d.sesiones || [], panelistas: d.panelistas || [],
+    estructura: d.estructura || null, escala: d.escala || 3, ordenAzar: !!d.ordenAzar,
     creado: d.creado && d.creado.toDate ? d.creado.toDate().toISOString() : null,
   };
 }
@@ -158,7 +159,8 @@ function docsDiseno(est) {
   const priv = est.diseno.map(d => `${d.Sesion}|${d.Valuador}|${d.Orden}|${d.CodigoProducto}|${d.NombreProducto}|${d.Rep}`);
   return {
     estudio: {
-      nombre: est.nombre, tecnica: 'descriptiva', atributos: est.atributos,
+      nombre: est.nombre, tecnica: est.tecnica || 'descriptiva', atributos: est.atributos,
+      estructura: est.estructura || null, escala: est.escala || 3, ordenAzar: !!est.ordenAzar,
       sesiones: est.sesiones.map(s => ({ Sesion: s.Sesion, NMuestras: s.NMuestras })),
       panelistas: est.panelistas,
     },
@@ -206,6 +208,16 @@ export async function respuestasEstudio(eid) {
     const x = d.data();
     return { ...x, ts: x.ts && x.ts.toDate ? x.ts.toDate().toISOString() : (x.tsCliente || '') };
   });
+}
+
+// respuestas en vivo (la primera vez lee todas; después solo los cambios)
+export function observarRespuestas(eid, cb, err) {
+  return onSnapshot(collection(db, 'estudios', eid, 'respuestas'), snap => {
+    cb(snap.docs.map(d => {
+      const x = d.data();
+      return { ...x, ts: x.ts && x.ts.toDate ? x.ts.toDate().toISOString() : (x.tsCliente || '') };
+    }));
+  }, err);
 }
 
 export async function contarRespuestas(eid) {

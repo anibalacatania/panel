@@ -20,7 +20,8 @@ const denegar = () => { const e = new Error('Missing or insufficient permissions
 export async function iniciar() { await dormir(5); }
 
 const limpiar = (id, d) => ({ id, nombre: d.nombre, tecnica: d.tecnica || 'descriptiva', activo: !!d.activo,
-  atributos: d.atributos || [], sesiones: d.sesiones || [], panelistas: d.panelistas || [], creado: d.creado || null });
+  atributos: d.atributos || [], sesiones: d.sesiones || [], panelistas: d.panelistas || [], creado: d.creado || null,
+  estructura: d.estructura || null, escala: d.escala || 3, ordenAzar: !!d.ordenAzar });
 
 export async function estudiosActivos() {
   await dormir(st.latencia);
@@ -80,7 +81,7 @@ let n = 0;
 export async function crearEstudio(est) {
   if (!esAdmin()) denegar();
   const id = 'est' + (++n) + '_' + Date.now().toString(36);
-  s(`estudios/${id}`, { nombre: est.nombre, tecnica: 'descriptiva', activo: true, atributos: est.atributos,
+  s(`estudios/${id}`, { nombre: est.nombre, tecnica: est.tecnica || 'descriptiva', activo: true, atributos: est.atributos, estructura: est.estructura || null, escala: est.escala || 3, ordenAzar: !!est.ordenAzar,
     sesiones: est.sesiones.map(x => ({ Sesion: x.Sesion, NMuestras: x.NMuestras })), panelistas: est.panelistas, creado: new Date().toISOString() });
   s(`estudios/${id}/publico/diseno`, { filas: est.diseno.map(d => `${d.Sesion}|${d.Valuador}|${d.Orden}|${d.CodigoProducto}`) });
   s(`estudios/${id}/privado/diseno`, { filas: est.diseno.map(d => `${d.Sesion}|${d.Valuador}|${d.Orden}|${d.CodigoProducto}|${d.NombreProducto}|${d.Rep}`),
@@ -103,3 +104,9 @@ export async function respuestasEstudio(eid) {
 }
 export async function contarRespuestas(eid) { return Object.keys(st.docs).filter(k => k.startsWith(`estudios/${eid}/respuestas/`)).length; }
 export async function borrarEstudio(eid) { if (!esAdmin()) denegar(); Object.keys(st.docs).filter(k => k === `estudios/${eid}` || k.startsWith(`estudios/${eid}/`)).forEach(del); }
+export function observarRespuestas(eid, cb) {
+  let vivo = true;
+  const tick = () => { if (!vivo) return; respuestasEstudio(eid).then(cb).catch(() => {}); };
+  tick(); const t = setInterval(tick, 1000);
+  return () => { vivo = false; clearInterval(t); };
+}
