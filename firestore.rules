@@ -1,0 +1,78 @@
+rules_version = '2';
+
+// Reglas de seguridad de Panel Sensorial (Firestore).
+// - Panelistas (sin cuenta): leen estudios activos y su diseño público (sin nombres de vinos),
+//   y escriben sus respuestas y su progreso SOLO si el estudio está activo y con formato válido.
+// - Administradores (cuenta de Google en la colección admins): todo lo demás.
+// - El primer administrador se registra solo, una única vez (meta/setup).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+    function esAdmin() {
+      return autenticado()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
+    }
+    function estudioActivo(e) {
+      return get(/databases/$(database)/documents/estudios/$(e)).data.activo == true;
+    }
+    function respuestaValida(r) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['Sesion', 'Valuador', 'Orden', 'CodigoProducto', 'valores', 'ts', 'tsCliente'])
+        && d.keys().hasAll(['Sesion', 'Valuador', 'Orden', 'CodigoProducto', 'valores', 'ts'])
+        && d.Sesion is string && d.Sesion.size() <= 20
+        && d.Valuador is string && d.Valuador.size() <= 20
+        && d.Orden is int && d.Orden >= 1 && d.Orden <= 100
+        && d.CodigoProducto is string && d.CodigoProducto.size() <= 10
+        && d.valores is map && d.valores.size() <= 100
+        && d.ts == request.time
+        && r == d.Valuador + '_' + d.Sesion + '_' + string(d.Orden);
+    }
+
+    // ---- administradores (id del documento = email)
+    match /admins/{email} {
+      allow get: if esAdmin() || (autenticado() && request.auth.token.email == email);
+      allow list: if esAdmin();
+      allow create: if esAdmin()
+        || (autenticado() && request.auth.token.email == email
+            && !exists(/databases/$(database)/documents/meta/setup)
+            && getAfter(/databases/$(database)/documents/meta/setup).data.listo == true);
+      allow update: if false;
+      allow delete: if esAdmin() && request.auth.token.email != email;
+    }
+    match /meta/setup {
+      allow read: if true;
+      allow create: if autenticado()
+        && !exists(/databases/$(database)/documents/meta/setup)
+        && existsAfter(/databases/$(database)/documents/admins/$(request.auth.token.email))
+        && request.resource.data.keys().hasOnly(['listo']) && request.resource.data.listo == true;
+      allow update, delete: if false;
+    }
+
+    // ---- estudios
+    match /estudios/{e} {
+      allow read: if true;
+      allow write: if esAdmin();
+
+      match /publico/{d} {
+        allow read: if true;
+        allow write: if esAdmin();
+      }
+      match /privado/{d} {
+        allow read, write: if esAdmin();
+      }
+      match /respuestas/{r} {
+        allow read, delete: if esAdmin();
+        allow create, update: if estudioActivo(e) && respuestaValida(r);
+      }
+      match /progreso/{v} {
+        allow read: if true;
+        allow create, update: if estudioActivo(e) && v.size() <= 20 && request.resource.data.size() <= 300;
+        allow delete: if esAdmin();
+      }
+    }
+  }
+}
