@@ -16,23 +16,27 @@ import {
   collection, doc, getDoc, getDocs, setDoc, onSnapshot, query, where, writeBatch,
   arrayUnion, serverTimestamp, getCountFromServer, updateDoc,
 } from 'firebase/firestore';
-import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged,
-} from 'firebase/auth';
-
-let db, auth;
+// El inicio de sesión (firebase/auth) solo lo usa el administrador: se carga aparte, a pedido,
+// así la app de los panelistas es más liviana.
+let db, auth, app, A;
+async function cargarAuth() {
+  if (!A) {
+    A = await import('firebase/auth');
+    auth = A.getAuth(app);
+  }
+  return A;
+}
 
 export async function iniciar() {
   if (db) return;
   const cfg = await (await fetch('config.json?v=' + Date.now(), { cache: 'no-store' })).json();
-  const app = initializeApp(cfg.firebase);
+  app = initializeApp(cfg.firebase);
   try {
     // guarda en el dispositivo: sin internet sigue funcionando y sube todo al volver la conexión
     db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
   } catch (e) {
     db = initializeFirestore(app, {});
   }
-  auth = getAuth(app);
 }
 
 const ses = (e, ...p) => doc(db, 'estudios', e, ...p);
@@ -76,19 +80,24 @@ export function guardarRespuesta(eid, { Sesion, Valuador, Orden, CodigoProducto,
 }
 
 // ------------------------------------------------------------- administración
-export function observarUsuario(cb) { return onAuthStateChanged(auth, cb); }
+export function observarUsuario(cb) {
+  let off = () => {}, vivo = true;
+  cargarAuth().then(a => { if (vivo) off = a.onAuthStateChanged(auth, cb); });
+  return () => { vivo = false; off(); };
+}
 
 export async function entrarConGoogle() {
-  const p = new GoogleAuthProvider();
+  const a = await cargarAuth();
+  const p = new a.GoogleAuthProvider();
   p.setCustomParameters({ prompt: 'select_account' });
-  try { await signInWithPopup(auth, p); }
+  try { await a.signInWithPopup(auth, p); }
   catch (e) {
     if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment')) {
-      await signInWithRedirect(auth, p);
+      await a.signInWithRedirect(auth, p);
     } else throw e;
   }
 }
-export const salir = () => signOut(auth);
+export const salir = async () => { const a = await cargarAuth(); return a.signOut(auth); };
 
 // 'admin' | 'registrable' (todavía no hay ningún administrador) | 'no'
 export async function rolAdmin() {
