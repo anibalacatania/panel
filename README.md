@@ -3,8 +3,8 @@
 App web para análisis sensorial descriptivo con **varios estudios a la vez**, sesiones, repeticiones y diseño de Williams.
 Los datos se guardan en **Firebase (Firestore)**; la app se publica en GitHub Pages.
 
-- **Panelistas:** https://anibalacatania.github.io/panel-firebase/
-- **Administración:** https://anibalacatania.github.io/panel-firebase/#admin (entrar con cuenta de Google)
+- **Panelistas:** https://anibalacatania.github.io/panel/
+- **Administración:** https://anibalacatania.github.io/panel/#admin (entrar con cuenta de Google)
 - **Consola de Firebase:** proyecto `panel-sensorial` (plan gratuito Spark, base de datos en São Paulo)
 
 ## Cómo se usa
