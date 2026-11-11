@@ -1,1 +1,10 @@
-{ "firebase": null }
+{
+  "firebase": {
+    "apiKey": "AIzaSyA_kgbeqX51SzR6OGtLC3cP6jufBgZhh1Y",
+    "authDomain": "panel-sensorial-ef729.firebaseapp.com",
+    "projectId": "panel-sensorial-ef729",
+    "storageBucket": "panel-sensorial-ef729.firebasestorage.app",
+    "messagingSenderId": "189347059138",
+    "appId": "1:189347059138:web:3eec649bfe0b0b6a55725b"
+  }
+}
