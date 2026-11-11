@@ -12,7 +12,7 @@
 // =====================================================================
 import { initializeApp } from 'firebase/app';
 import {
-  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  initializeFirestore, persistentLocalCache, persistentSingleTabManager, memoryLocalCache,
   collection, doc, getDoc, getDocs, setDoc, onSnapshot, query, where, writeBatch,
   arrayUnion, serverTimestamp, getCountFromServer, updateDoc,
 } from 'firebase/firestore';
@@ -31,9 +31,15 @@ export async function iniciar() {
   if (db) return;
   const cfg = await (await fetch('config.json?v=' + Date.now(), { cache: 'no-store' })).json();
   app = initializeApp(cfg.firebase);
+  // Administración: sin caché en disco (siempre datos frescos y no comparte cola de escritura con
+  // pestañas de panelista abiertas en la misma computadora).
+  // Panelistas: guarda en el dispositivo; sin internet sigue funcionando y sube todo al volver.
+  // Una sola pestaña es dueña del disco; si hay otra abierta, esa usa memoria (cada una escribe directo).
+  const esAdmin = (location.hash || '').startsWith('#admin');
   try {
-    // guarda en el dispositivo: sin internet sigue funcionando y sube todo al volver la conexión
-    db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+    db = esAdmin
+      ? initializeFirestore(app, { localCache: memoryLocalCache() })
+      : initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentSingleTabManager({}) }) });
   } catch (e) {
     db = initializeFirestore(app, {});
   }
