@@ -21,13 +21,14 @@ service cloud.firestore {
     }
     function respuestaValida(r) {
       let d = request.resource.data;
-      return d.keys().hasOnly(['Sesion', 'Valuador', 'Orden', 'CodigoProducto', 'valores', 'ts', 'tsCliente'])
+      return d.keys().hasOnly(['Sesion', 'Valuador', 'Orden', 'CodigoProducto', 'valores', 'ts', 'tsCliente', 'def'])
         && d.keys().hasAll(['Sesion', 'Valuador', 'Orden', 'CodigoProducto', 'valores', 'ts'])
         && d.Sesion is string && d.Sesion.size() <= 20
         && d.Valuador is string && d.Valuador.size() <= 20
         && d.Orden is int && d.Orden >= 1 && d.Orden <= 100
         && d.CodigoProducto is string && d.CodigoProducto.size() <= 10
         && d.valores is map && d.valores.size() <= 300
+        && (!('def' in d) || (d.def is map && d.def.size() <= 300))
         && d.ts == request.time
         && r == d.Valuador + '_' + d.Sesion + '_' + string(d.Orden);
     }

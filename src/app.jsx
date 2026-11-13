@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as datos from 'datos';
 import { ordenNatural, tamaniosSesiones, generarDiseno } from './diseno.js';
-import { TECNICAS, nombreTecnica, etiquetasRata, parsearDescriptores, bloquesDe } from './tecnicas.js';
-import { analizar } from './analisis.js';
+import { TECNICAS, nombreTecnica, etiquetasRata, parsearDescriptores, bloquesDe, rangosDesdePosiciones } from './tecnicas.js';
+import { analizar, afm } from './analisis.js';
 
 // ---- almacenamiento local seguro (copias para mostrar la app al instante)
 const LS = {
@@ -209,7 +209,7 @@ function PanelApp() {
           <div className="w-14 h-14 mx-auto text-purple-600 mb-3"><Wine/></div>
           <h1 className="text-3xl font-bold text-gray-800 mb-1">{estudio.nombre}</h1>
           <p className="text-gray-600">Seleccioná tu número de panelista</p>
-          <p className="text-xs text-gray-400 mt-1">{nombreTecnica(estudio.tecnica)} • {estudio.sesiones.length} sesiones • {atributos.length} {esRata ? 'descriptores' : 'atributos'}</p>
+          <p className="text-xs text-gray-400 mt-1">{nombreTecnica(estudio.tecnica)} • {estudio.sesiones.length} sesiones{estudio.tecnica === 'flash' ? '' : ` • ${atributos.length} ${esRata ? 'descriptores' : 'atributos'}`}</p>
         </div>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-96 overflow-y-auto">
           {estudio.panelistas.map(v => (
@@ -285,6 +285,15 @@ function PanelApp() {
   }
 
   // evaluación
+  if (estudio.tecnica === 'flash') {
+    return <SesionFlash eid={eid} estudio={estudio} valuador={valuador} sesion={sesion} muestras={filas}
+      previos={progreso && progreso._atributos} pendientes={pendientes} cerrado={cerrado} setCerrado={setCerrado}
+      salir={() => setVista('sesiones')}
+      alTerminar={ordenes => {
+        setHechasLocal(prev => ({ ...prev, [sesion.Sesion]: [...new Set([...(prev[sesion.Sesion] || []), ...ordenes])] }));
+        setVista('finSesion'); window.scrollTo(0, 0);
+      }} />;
+  }
   const f = filas[idx] || {};
   const hechasSesion = respondidas(sesion.Sesion);
   return (
@@ -429,6 +438,215 @@ function EvaluacionRata({ bloques, valores, cambiar, etiquetas, faltan }) {
   );
 }
 
+// ---- Perfil Flash: el panelista genera sus descriptores y ordena todas las muestras para cada uno
+function lineaOrden(muestras, pos) {
+  const con = muestras.filter(m => pos[m.Orden] != null);
+  const grupos = {};
+  con.forEach(m => { (grupos[pos[m.Orden]] = grupos[pos[m.Orden]] || []).push(m.CodigoProducto); });
+  return Object.keys(grupos).map(Number).sort((a, b) => a - b).map(k => grupos[k]);
+}
+
+function SesionFlash({ eid, estudio, valuador, sesion, muestras, previos, pendientes, cerrado, setCerrado, alTerminar, salir }) {
+  const clave = `pf_flash_${eid}_${valuador}_${sesion.Sesion}`;
+  const inicial = LS.get(clave, null) || {
+    paso: 'desc', i: 0, pos: {},
+    atributos: (previos || []).map(n => ({ n, def: '' })),
+  };
+  const [st, setSt] = useState(inicial);
+  const [nuevo, setNuevo] = useState('');
+  const [aviso, setAviso] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  useEffect(() => { LS.set(clave, st); }, [st]);
+  const upd = cambios => setSt(prev => ({ ...prev, ...cambios }));
+  const n = muestras.length;
+  const nombres = st.atributos.map(a => a.n);
+
+  const agregar = (txt) => {
+    const t = String(txt || '').replace(/\s+/g, ' ').trim().replace(/\|/g, '/').slice(0, 60);
+    if (!t) return;
+    if (nombres.some(x => x.toLowerCase() === t.toLowerCase())) { setAviso(`“${t}” ya está en tu lista.`); return; }
+    setAviso(''); upd({ atributos: [...st.atributos, { n: t, def: '' }] }); setNuevo('');
+  };
+  const quitar = (k) => upd({ atributos: st.atributos.filter(a => a.n !== k) });
+  const completo = (a) => muestras.every(m => st.pos[a] && st.pos[a][m.Orden] != null);
+  const poner = (a, orden, v) => { setAviso(''); upd({ pos: { ...st.pos, [a]: { ...(st.pos[a] || {}), [orden]: v } } }); };
+
+  const enviar = async () => {
+    setEnviando(true);
+    const rangos = {}; nombres.forEach(a => { rangos[a] = rangosDesdePosiciones(st.pos[a]); });
+    const def = {}; st.atributos.forEach(a => { if (a.def.trim()) def[a.n] = a.def.trim().slice(0, 300); });
+    const payload = muestras.map(m => {
+      const valores = {}; nombres.forEach(a => { valores[a] = rangos[a][m.Orden]; });
+      return { Orden: m.Orden, CodigoProducto: m.CodigoProducto, valores };
+    });
+    datos.guardarFlash(eid, { Sesion: sesion.Sesion, Valuador: valuador, muestras: payload, atributos: nombres, def })
+      .catch(e => { if (e && e.code === 'permission-denied') setCerrado(true); });
+    try { localStorage.removeItem(clave); } catch {}
+    alTerminar(muestras.map(m => m.Orden));
+  };
+
+  const Cabecera = () => (
+    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-5 mb-5 border border-white/20">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-xl font-bold text-white">Panelista {valuador} · Sesión {sesion.Sesion.replace(/^S/, '')}</h2>
+          <p className="text-purple-200">Perfil Flash · {n} muestras</p>
+          <div className="mt-1"><EstadoNube pendientes={pendientes} oscuro /></div>
+        </div>
+        <button onClick={salir} className="text-sm text-purple-200 hover:text-white underline">Salir (se guarda el borrador)</button>
+      </div>
+      {cerrado && <p className="text-sm bg-red-50 text-red-700 p-3 rounded-lg mb-3">Este estudio fue cerrado por el administrador: las respuestas nuevas no se pueden guardar.</p>}
+      <p className="text-purple-100 text-sm mb-2">Tus muestras, en este orden en la bandeja (de izquierda a derecha):</p>
+      <div className="flex flex-wrap gap-2">
+        {muestras.map(m => <span key={m.Orden} className="bg-gradient-to-br from-yellow-400 to-orange-500 text-gray-900 font-bold text-xl px-3 py-1 rounded-lg shadow">{m.CodigoProducto}</span>)}
+      </div>
+    </div>
+  );
+
+  const caja = 'bg-white/10 backdrop-blur-lg rounded-2xl p-5 mb-5 border border-white/20';
+  const btnP = 'w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-4 rounded-xl shadow-2xl text-lg disabled:opacity-40';
+  const btnS = 'w-full bg-white/10 hover:bg-white/20 border-2 border-white/30 text-white font-semibold py-3 rounded-xl';
+
+  // 1) generación de descriptores
+  if (st.paso === 'desc') {
+    const sug = (estudio.sugerencias || []).filter(x => !nombres.some(y => y.toLowerCase() === x.toLowerCase()));
+    return (
+      <div className="min-h-screen py-6 px-4"><div className="max-w-4xl mx-auto">
+        <Cabecera/>
+        <div className={caja}>
+          <h3 className="text-xl font-bold text-white mb-2">1. Tus descriptores</h3>
+          <p className="text-purple-100 text-sm mb-4">
+            Probá <b>todas</b> las muestras y escribí los descriptores que te sirven para <b>diferenciarlas</b> (aroma, sabor, textura…).
+            Usá tus propias palabras. No pongas gustos (“rico”, “feo”): solo características. No hace falta una lista larga: solo lo que las distingue.
+          </p>
+          <div className="flex gap-2 mb-2">
+            <input value={nuevo} onChange={e => setNuevo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') agregar(nuevo); }}
+              placeholder="Ej: Frutos rojos" className="flex-1 rounded-lg px-4 py-3 text-lg text-gray-900" />
+            <button onClick={() => agregar(nuevo)} className="bg-pink-500 hover:bg-pink-600 text-white font-bold px-5 rounded-lg">Agregar</button>
+          </div>
+          {aviso && <p className="text-amber-300 text-sm mb-2">{aviso}</p>}
+          {sug.length > 0 && (
+            <div className="mb-4">
+              <p className="text-purple-200 text-xs mb-1">Ideas (tocá para agregar, solo si te sirven):</p>
+              <div className="flex flex-wrap gap-1">{sug.map(x => <button key={x} onClick={() => agregar(x)} className="text-sm bg-white/10 hover:bg-white/25 text-white px-3 py-1 rounded-full border border-white/20">+ {x}</button>)}</div>
+            </div>
+          )}
+          <div className="space-y-2 mt-4">
+            {st.atributos.map((a, i) => (
+              <div key={a.n} className="bg-slate-800/70 border border-slate-600/60 rounded-xl p-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-purple-300 font-bold w-6 text-right">{i + 1}.</span>
+                  <span className="text-white font-semibold text-lg flex-1">{a.n}</span>
+                  <button onClick={() => quitar(a.n)} className="text-slate-300 hover:text-red-400 text-xl px-2" title="Quitar">✕</button>
+                </div>
+                <input value={a.def} onChange={e => upd({ atributos: st.atributos.map(x => x.n === a.n ? { ...x, def: e.target.value } : x) })}
+                  placeholder="¿Cómo lo evaluás? (opcional, ej: en boca, después de 5 segundos)" className="mt-2 w-full rounded-lg px-3 py-2 text-sm bg-white/90 text-gray-800" />
+              </div>
+            ))}
+            {!st.atributos.length && <p className="text-purple-200 text-sm italic">Todavía no agregaste descriptores.</p>}
+          </div>
+        </div>
+        <button disabled={!st.atributos.length} onClick={() => upd({ paso: 'rank', i: 0 })} className={btnP}>
+          Ordenar las muestras ({st.atributos.length} descriptor{st.atributos.length === 1 ? '' : 'es'}) →
+        </button>
+      </div></div>
+    );
+  }
+
+  // 3) revisión y envío
+  if (st.paso === 'revisar') {
+    return (
+      <div className="min-h-screen py-6 px-4"><div className="max-w-4xl mx-auto">
+        <Cabecera/>
+        <div className={caja}>
+          <h3 className="text-xl font-bold text-white mb-4">3. Revisá y enviá</h3>
+          <div className="space-y-3">
+            {nombres.map((a, i) => (
+              <button key={a} onClick={() => upd({ paso: 'rank', i })} className="w-full text-left bg-slate-800/70 hover:bg-slate-700/70 border border-slate-600/60 rounded-xl p-3">
+                <p className="text-white font-semibold mb-1">{a} <span className="text-xs text-purple-300 font-normal">(tocá para cambiar)</span></p>
+                <div className="flex items-center gap-2 flex-wrap text-sm">
+                  <span className="text-purple-300">menos</span>
+                  {lineaOrden(muestras, st.pos[a] || {}).map((g, j) => (
+                    <span key={j} className={`px-2 py-0.5 rounded font-bold ${g.length > 1 ? 'bg-amber-300 text-amber-900' : 'bg-white text-gray-900'}`}>{g.join(' = ')}</span>))}
+                  <span className="text-purple-300">más</span>
+                </div>
+              </button>))}
+          </div>
+        </div>
+        <div className="space-y-3">
+          <button disabled={enviando} onClick={enviar} className={btnP}>Enviar sesión ✓</button>
+          <button onClick={() => upd({ paso: 'desc' })} className={btnS}>← Cambiar mis descriptores</button>
+        </div>
+      </div></div>
+    );
+  }
+
+  // 2) ordenamiento, un descriptor a la vez
+  const i = Math.min(st.i, nombres.length - 1);
+  const a = nombres[i];
+  const def = (st.atributos.find(x => x.n === a) || {}).def;
+  const pos = st.pos[a] || {};
+  const todosIguales = completo(a) && new Set(muestras.map(m => pos[m.Orden])).size === 1;
+  const siguiente = () => {
+    if (!completo(a)) { setAviso('Falta ubicar alguna muestra.'); return; }
+    setAviso('');
+    if (i + 1 < nombres.length) upd({ i: i + 1 }); else upd({ paso: 'revisar' });
+    window.scrollTo(0, 0);
+  };
+  return (
+    <div className="min-h-screen py-6 px-4"><div className="max-w-4xl mx-auto">
+      <Cabecera/>
+      <div className={caja}>
+        <p className="text-purple-200 text-sm">2. Ordenar · descriptor {i + 1} de {nombres.length}</p>
+        <h3 className="text-3xl font-bold text-white mb-1">{a}</h3>
+        {def && <p className="text-purple-100 text-sm mb-2 italic">{def}</p>}
+        <p className="text-purple-100 text-sm mb-4">
+          Ordená las muestras de <b>menos</b> a <b>más</b> {a.toLowerCase()}: <b>1</b> = la que menos tiene, <b>{n}</b> = la que más.
+          Si dos muestras te parecen iguales, poneles <b>el mismo número</b> (empate).
+        </p>
+        <div className="overflow-x-auto">
+          <table className="mx-auto">
+            <thead><tr>
+              <th></th>
+              {Array.from({ length: n }, (_, k) => <th key={k} className="text-xs text-purple-200 font-semibold px-1 pb-1">{k === 0 ? '1 menos' : k === n - 1 ? `${n} más` : k + 1}</th>)}
+            </tr></thead>
+            <tbody>{muestras.map(m => (
+              <tr key={m.Orden}>
+                <td className="pr-3 py-1"><span className="bg-gradient-to-br from-yellow-400 to-orange-500 text-gray-900 font-bold text-lg px-3 py-1 rounded-lg">{m.CodigoProducto}</span></td>
+                {Array.from({ length: n }, (_, k) => (
+                  <td key={k} className="px-0.5 py-1">
+                    <button onClick={() => poner(a, m.Orden, k + 1)}
+                      className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg font-bold border-2 ${pos[m.Orden] === k + 1 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-transparent' : 'bg-slate-800/60 text-slate-300 border-slate-600 hover:border-pink-400'}`}>
+                      {k + 1}
+                    </button>
+                  </td>))}
+              </tr>))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-5 bg-white rounded-xl p-3">
+          <p className="text-xs text-gray-500 mb-1">Así queda tu orden:</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-gray-500 font-semibold">− menos</span>
+            {lineaOrden(muestras, pos).map((g, j) => (
+              <span key={j} className={`px-2 py-1 rounded-lg font-bold ${g.length > 1 ? 'bg-amber-200 text-amber-900' : 'bg-purple-100 text-purple-900'}`}>{g.join(' = ')}</span>))}
+            <span className="text-gray-500 font-semibold">más +</span>
+          </div>
+          {todosIguales && <p className="text-xs text-amber-700 mt-2">Pusiste todas las muestras iguales: este descriptor no las diferencia. Si es así, podés quitarlo de tu lista.</p>}
+        </div>
+      </div>
+      {aviso && <p className="mb-3 bg-red-500/90 text-white font-semibold p-3 rounded-xl text-center">{aviso}</p>}
+      <div className="space-y-3">
+        <button onClick={siguiente} className={btnP}>{i + 1 < nombres.length ? 'Siguiente descriptor →' : 'Revisar y enviar →'}</button>
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={() => { setAviso(''); i > 0 ? upd({ i: i - 1 }) : upd({ paso: 'desc' }); }} className={btnS}>← Anterior</button>
+          <button onClick={() => upd({ paso: 'desc' })} className={btnS}>Editar descriptores</button>
+        </div>
+      </div>
+    </div></div>
+  );
+}
+
 // =====================================================================
 // APP DEL ADMINISTRADOR  (index.html#admin)
 // =====================================================================
@@ -549,7 +767,7 @@ function ListaEstudios({ abrir, nuevo }) {
                 <span className={`text-xs font-bold px-2 py-1 rounded-full ${e.activo ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>{e.activo ? 'Activo' : 'Cerrado'}</span>
               </div>
               <p className="text-sm text-gray-600"><span className={`text-xs font-bold px-2 py-0.5 rounded-full mr-1 ${(TECNICAS[e.tecnica] || TECNICAS.descriptiva).color}`}>{(TECNICAS[e.tecnica] || TECNICAS.descriptiva).corto}</span>
-                {e.sesiones.length} sesiones · {e.panelistas.length} panelistas · {e.atributos.length} {e.tecnica === 'rata' ? 'descriptores' : 'atributos'}</p>
+                {e.sesiones.length} sesiones · {e.panelistas.length} panelistas · {e.tecnica === 'flash' ? 'descriptores propios' : `${e.atributos.length} ${e.tecnica === 'rata' ? 'descriptores' : 'atributos'}`}</p>
               {e.creado && <p className="text-xs text-gray-400 mt-1">Creado {new Date(e.creado).toLocaleDateString('es-AR')}</p>}
             </button>))}
           </div>}
@@ -570,8 +788,9 @@ function NuevoEstudio({ creado, cancelar }) {
   const [tecnica, setTecnica] = useState(F.tecnica ?? 'descriptiva');
   const [escala, setEscala] = useState(F.escala ?? 3);
   const [ordenAzar, setOrdenAzar] = useState(F.ordenAzar ?? false);
-  useEffect(() => { LS.set('pf_form', { nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt, tecnica, escala, ordenAzar }); },
-    [nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt, tecnica, escala, ordenAzar]);
+  const [sugTxt, setSugTxt] = useState(F.sugTxt ?? '');
+  useEffect(() => { LS.set('pf_form', { nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt, tecnica, escala, ordenAzar, sugTxt }); },
+    [nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt, tecnica, escala, ordenAzar, sugTxt]);
   const [prev, setPrev] = useState(null);
   const [msg, setMsg] = useState(null);
   const [ocupado, setOcupado] = useState(false);
@@ -580,7 +799,9 @@ function NuevoEstudio({ creado, cancelar }) {
   const vinos = lineas(vinosTxt);
   const desc = useMemo(() => parsearDescriptores(atrTxt), [atrTxt]);
   const atributos = desc.claves;
-  const esRata = tecnica === 'rata';
+  const esRata = tecnica === 'rata', esFlash = tecnica === 'flash';
+  const sugerencias = [...new Set(sugTxt.split(/\r?\n|;|\t/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, 200);
+  const porSesionEf = esFlash ? Math.max(1, vinos.length) : Number(porSesion);
   const dup = vinos.filter((v, i) => vinos.indexOf(v) !== i);
 
   const generar = () => {
@@ -589,27 +810,30 @@ function NuevoEstudio({ creado, cancelar }) {
     if (vinos.length < 1) return setMsg({ t: 'error', m: 'Pegá al menos un vino.' });
     if (dup.length) return setMsg({ t: 'error', m: 'Hay vinos repetidos: ' + [...new Set(dup)].join(', ') });
     if (vinos.some(v => v.includes('|'))) return setMsg({ t: 'error', m: 'Los nombres de vinos no pueden tener el carácter |' });
-    if (!atributos.length) return setMsg({ t: 'error', m: 'Agregá al menos un descriptor.' });
-    if (desc.dup.length) return setMsg({ t: 'error', m: 'Hay descriptores repetidos en el mismo grupo: ' + desc.dup.join(', ') });
-    if (desc.malos.length) return setMsg({ t: 'error', m: 'Descriptores con el carácter | o demasiado largos: ' + desc.malos.join(', ') });
+    if (!esFlash && !atributos.length) return setMsg({ t: 'error', m: 'Agregá al menos un descriptor.' });
+    if (esFlash && vinos.length < 3) return setMsg({ t: 'error', m: 'El Perfil Flash necesita al menos 3 muestras para ordenar.' });
+    if (esFlash && vinos.length > 20) return setMsg({ t: 'error', m: 'En Perfil Flash todas las muestras se evalúan juntas: máximo 20.' });
+    if (!esFlash && desc.dup.length) return setMsg({ t: 'error', m: 'Hay descriptores repetidos en el mismo grupo: ' + desc.dup.join(', ') });
+    if (!esFlash && desc.malos.length) return setMsg({ t: 'error', m: 'Descriptores con el carácter | o demasiado largos: ' + desc.malos.join(', ') });
     if (atributos.length > 300) return setMsg({ t: 'error', m: 'Máximo 300 descriptores por estudio.' });
-    if (Number(porSesion) > vinos.length) return setMsg({ t: 'error', m: `No puede haber más vinos por sesión (${porSesion}) que vinos distintos (${vinos.length}): un vino no se repite dentro de una sesión.` });
+    if (!esFlash && Number(porSesion) > vinos.length) return setMsg({ t: 'error', m: `No puede haber más vinos por sesión (${porSesion}) que vinos distintos (${vinos.length}): un vino no se repite dentro de una sesión.` });
     if (vinos.length * reps > 900) return setMsg({ t: 'error', m: 'Demasiadas muestras para códigos de 3 dígitos (máx. 900 vinos × repeticiones).' });
-    setPrev(generarDiseno({ vinos, porSesion: Number(porSesion), reps: Number(reps), nPanelistas: Number(nPan), parejo, semilla: Number(semilla) }));
+    setPrev(generarDiseno({ vinos, porSesion: porSesionEf, reps: Number(reps), nPanelistas: Number(nPan), parejo: esFlash ? false : parejo, semilla: Number(semilla) }));
   };
 
   const guardar = async () => {
     setOcupado(true); setMsg(null);
     try {
       const id = await datos.crearEstudio({
-        nombre: nombre.trim(), atributos, tecnica, estructura: desc.estructura,
-        escala: esRata ? Number(escala) : 3, ordenAzar,
+        nombre: nombre.trim(), tecnica,
+        atributos: esFlash ? [] : atributos, estructura: esFlash ? null : desc.estructura,
+        escala: esRata ? Number(escala) : 3, ordenAzar: esFlash ? false : ordenAzar, sugerencias: esFlash ? sugerencias : [],
         sesiones: prev.sesiones.map(s => ({ Sesion: s.Sesion, NMuestras: s.NMuestras, Vinos: s.Vinos })),
         panelistas: Array.from({ length: Number(nPan) }, (_, i) => 'V' + (i + 1)),
         diseno: prev.diseno,
-        parametros: { vinos, reps: Number(reps), porSesion: Number(porSesion), nPanelistas: Number(nPan), parejo, semilla: Number(semilla) },
+        parametros: { vinos, reps: Number(reps), porSesion: porSesionEf, nPanelistas: Number(nPan), parejo, semilla: Number(semilla) },
       });
-      LS.set('pf_form', { atrTxt, porSesion, reps, nPan, parejo, tecnica, escala, ordenAzar });
+      LS.set('pf_form', { atrTxt, porSesion, reps, nPan, parejo, tecnica, escala, ordenAzar, sugTxt });
       creado(id);
     } catch (e) { setMsg({ t: 'error', m: textoError(e) }); }
     finally { setOcupado(false); }
@@ -626,9 +850,10 @@ function NuevoEstudio({ creado, cancelar }) {
         <div className="lg:col-span-2 space-y-4">
           <div>
             <span className="text-sm font-semibold text-gray-700">Técnica</span>
-            <div className="grid grid-cols-2 gap-2 mt-1">
+            <div className="grid gap-2 mt-1">
               {[['descriptiva', 'Análisis Descriptivo Cuantitativo', 'Escala continua 0–10 para cada atributo.'],
-                ['rata', 'RATA', 'Marcar los descriptores presentes y su intensidad (bajo, medio, alto).']].map(([k, t, d]) => (
+                ['rata', 'RATA', 'Marcar los descriptores presentes y su intensidad (bajo, medio, alto).'],
+                ['flash', 'Perfil Flash', 'Cada panelista crea sus descriptores y ordena todas las muestras juntas, de menos a más.']].map(([k, t, d]) => (
                 <button key={k} type="button" onClick={() => setTecnica(k)}
                   className={`text-left rounded-xl border-2 p-3 ${tecnica === k ? 'border-purple-600 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}`}>
                   <p className="font-bold text-gray-800 text-sm">{t}</p>
@@ -643,24 +868,38 @@ function NuevoEstudio({ creado, cancelar }) {
             <textarea className={inp + ' h-40 font-mono text-sm'} value={vinosTxt} onChange={e => setVinosTxt(e.target.value)} placeholder={'T1R1\nT1R2\nT2R1\n…'} />
           </Campo>
           <div className="grid grid-cols-3 gap-3">
-            <Campo label="Repeticiones"><input type="number" min="1" className={inp} value={reps} onChange={e => setReps(e.target.value)} /></Campo>
-            <Campo label="Vinos por sesión"><input type="number" min="1" className={inp} value={porSesion} onChange={e => setPorSesion(e.target.value)} /></Campo>
+            <Campo label={esFlash ? 'Repeticiones (= sesiones)' : 'Repeticiones'}><input type="number" min="1" className={inp} value={reps} onChange={e => setReps(e.target.value)} /></Campo>
+            {esFlash
+              ? <Campo label="Muestras por sesión"><input disabled className={inp + ' bg-gray-100'} value={vinos.length || '—'} /></Campo>
+              : <Campo label="Vinos por sesión"><input type="number" min="1" className={inp} value={porSesion} onChange={e => setPorSesion(e.target.value)} /></Campo>}
             <Campo label="Panelistas"><input type="number" min="1" className={inp} value={nPan} onChange={e => setNPan(e.target.value)} /></Campo>
           </div>
-          {vinos.length > 0 && Number(reps) > 0 && Number(porSesion) > 0 && (
+          {esFlash && (
+            <p className="text-sm bg-amber-50 text-amber-900 rounded-lg p-3">
+              En Perfil Flash el panelista recibe <b>todas las muestras juntas</b> y las compara. Cada repetición es una sesión aparte
+              (lo habitual es 1). El cuadrado de Williams define el orden de las muestras en la bandeja de cada panelista.
+            </p>
+          )}
+          {!esFlash && vinos.length > 0 && Number(reps) > 0 && Number(porSesion) > 0 && (
             <p className="text-sm bg-purple-50 text-purple-900 rounded-lg p-3">
               {vinos.length} vinos × {reps} repeticiones = <b>{vinos.length * reps} muestras</b> →{' '}
               <b>{tamaniosSesiones(vinos.length * reps, Number(porSesion), parejo).length} sesiones</b>{' '}
               ({tamaniosSesiones(vinos.length * reps, Number(porSesion), parejo).join(' + ')})
             </p>
           )}
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          {!esFlash && <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={parejo} onChange={e => setParejo(e.target.checked)} className="w-4 h-4" />
             Repartir parejo entre sesiones (ej. 24 muestras de a 7 → 6+6+6+6 en vez de 7+7+7+3)
-          </label>
+          </label>}
           <Campo label="Semilla" ayuda="Con la misma semilla y los mismos datos se obtiene exactamente el mismo diseño.">
             <input type="number" className={inp} value={semilla} onChange={e => setSemilla(e.target.value)} />
           </Campo>
+          {esFlash
+            ? <Campo label={`Ideas de descriptores (opcional) · ${sugerencias.length}`}
+                ayuda="Los descriptores los crea cada panelista. Si querés, cargá una lista común de ideas (por ejemplo, de una sesión previa): el panelista la ve y puede tocar las que le sirvan. Una por línea.">
+                <textarea className={inp + ' h-32 text-sm'} value={sugTxt} onChange={e => setSugTxt(e.target.value)} placeholder={'Frutos rojos\nVainilla\nAstringencia'} />
+              </Campo>
+            : <>
           <Campo label={`${esRata ? 'Descriptores' : 'Atributos'} (${atributos.length})`}
             ayuda={<>Uno por línea. Opcional: agrupá con títulos — <code># Aroma</code> para la modalidad y <code>## Cítricos</code> para una categoría.
               Si un descriptor se repite en distintos grupos (ej. Limón en Aroma y en Sabor) la columna se llama “Aroma: Limón”.</>}>
@@ -680,6 +919,7 @@ function NuevoEstudio({ creado, cancelar }) {
             <span>Orden de los {esRata ? 'descriptores' : 'atributos'} al azar para cada panelista (dentro de cada grupo; los títulos quedan en su lugar).
               Reduce el sesgo por posición en la lista.</span>
           </label>
+            </>}
           <button onClick={generar} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg">Generar vista previa</button>
           <Mensaje msg={msg}/>
         </div>
@@ -691,7 +931,7 @@ function NuevoEstudio({ creado, cancelar }) {
             : <div>
                 <h2 className="text-lg font-bold text-gray-800 mb-1">Vista previa: {prev.sesiones.length} sesiones</h2>
                 <p className="text-sm text-gray-600 mb-3">
-                  <b>{nombreTecnica(tecnica)}</b> · {atributos.length} {esRata ? 'descriptores' : 'atributos'}{desc.hayGrupos ? ` en ${desc.estructura.filter(i => i.t === 'g1').length || desc.estructura.filter(i => i.t === 'g2').length} grupos` : ''} ·{' '}
+                  <b>{nombreTecnica(tecnica)}</b> · {esFlash ? 'descriptores propios de cada panelista' : `${atributos.length} ${esRata ? 'descriptores' : 'atributos'}`}{!esFlash && desc.hayGrupos ? ` en ${desc.estructura.filter(i => i.t === 'g1').length || desc.estructura.filter(i => i.t === 'g2').length} grupos` : ''} ·{' '}
                   {prev.totalMuestras} muestras ({vinos.length} vinos × {reps} rep.) · {nPan} panelistas · {prev.diseno.length} evaluaciones en total
                 </p>
                 {!balanceado && (
@@ -752,8 +992,8 @@ function EstudioAdmin({ eid, volver }) {
       </div>
       {tab === 'progreso' && <Progreso eid={eid} est={est} />}
       {tab === 'servicio' && <Servicio est={est} priv={priv} />}
-      {tab === 'analisis' && <Analisis eid={eid} est={est} priv={priv} />}
-      {tab === 'resultados' && <Resultados eid={eid} est={est} priv={priv} />}
+      {tab === 'analisis' && (est.tecnica === 'flash' ? <AnalisisFlash eid={eid} est={est} priv={priv} /> : <Analisis eid={eid} est={est} priv={priv} />)}
+      {tab === 'resultados' && (est.tecnica === 'flash' ? <ResultadosFlash eid={eid} est={est} priv={priv} /> : <Resultados eid={eid} est={est} priv={priv} />)}
       {tab === 'config' && <Configuracion eid={eid} est={est} recargar={recargar} borrado={volver} />}
     </div>
   );
@@ -1024,6 +1264,177 @@ function Resultados({ eid, est, priv }) {
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Perfil Flash: armado de datos, análisis (AFM) y resultados
+function datosFlash(est, priv, respuestas, sesion) {
+  const info = {}; priv.filas.forEach(d => { info[`${d.Valuador}_${d.Sesion}_${d.Orden}`] = d; });
+  const largo = [], pans = {}, prods = new Set();
+  for (const r of respuestas) {
+    if (sesion && r.Sesion !== sesion) continue;
+    const d = info[`${r.Valuador}_${r.Sesion}_${r.Orden}`] || {};
+    const prod = d.NombreProducto || r.CodigoProducto; prods.add(prod);
+    const P = (pans[r.Valuador] = pans[r.Valuador] || { attrs: new Set(), def: {}, x: {} });
+    Object.entries(r.valores || {}).forEach(([a, v]) => {
+      P.attrs.add(a);
+      ((P.x[a] = P.x[a] || {})[prod] = P.x[a][prod] || []).push(Number(v));
+      largo.push({ Estudio: est.nombre, Sesion: r.Sesion, Valuador: r.Valuador, Orden: r.Orden, NombreProducto: prod, Rep: d.Rep || '',
+        CodigoProducto: r.CodigoProducto, Atributo: a, Rango: Number(v), Definicion: (r.def && r.def[a]) || '', timestamp: r.ts || '' });
+    });
+    Object.assign(P.def, r.def || {});
+  }
+  const productos = [...prods].sort(ordenNatural);
+  const vs = Object.keys(pans).sort(ordenNatural);
+  const media = arr => arr && arr.length ? arr.reduce((s, y) => s + y, 0) / arr.length : null;
+  const grupos = vs.map(v => {
+    const attrs = [...pans[v].attrs].sort((a, b) => a.localeCompare(b, 'es'));
+    return { v, def: pans[v].def, cols: attrs.map(a => ({ a, col: `${v}_${a}`, x: productos.map(p => media(pans[v].x[a][p])) })) };
+  });
+  largo.sort((a, b) => ordenNatural(a.Sesion, b.Sesion) || ordenNatural(a.Valuador, b.Valuador) || a.Atributo.localeCompare(b.Atributo, 'es') || a.Orden - b.Orden);
+  return { largo, productos, grupos };
+}
+
+function AnalisisFlash({ eid, est, priv }) {
+  const [resp, setResp] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [sesion, setSesion] = useState('');
+  const [mostrar, setMostrar] = useState('buenos');
+  const [inv1, setInv1] = useState(false), [inv2, setInv2] = useState(false);
+  const svgRef = React.useRef(null);
+  useEffect(() => datos.observarRespuestas(eid, setResp, e => setMsg({ t: 'error', m: textoError(e) })), [eid]);
+  const res = useMemo(() => {
+    if (!resp) return null;
+    const d = datosFlash(est, priv, resp, sesion);
+    const bloques = d.grupos.map(g => ({ nombre: g.v, cols: g.cols.filter(c => c.x.every(v => v != null)).map(c => ({ a: `${g.v}: ${c.a}`, x: c.x })) }));
+    const r = afm(d.productos, bloques);
+    const terminos = {};
+    d.grupos.forEach(g => g.cols.forEach(c => { const k = c.a.toLowerCase(); (terminos[k] = terminos[k] || new Set()).add(g.v); }));
+    return { ...d, afm: r, terminos: Object.entries(terminos).map(([t, set]) => [t, set.size]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es')) };
+  }, [resp, sesion]);
+  if (!res) return <div><Mensaje msg={msg}/><p className="text-gray-500">Cargando respuestas…</p></div>;
+  const vis = res.afm ? { ...res.afm, vars: mostrar === 'ninguno' ? [] : mostrar === 'todos' ? res.afm.vars : res.afm.vars.filter(v => v.x * v.x + v.y * v.y >= 0.5) } : null;
+  const bajarSVG = () => {
+    const t = new XMLSerializer().serializeToString(svgRef.current);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([t], { type: 'image/svg+xml' }));
+    a.download = est.nombre.replace(/[^\w\-]+/g, '_') + '_AFM.svg'; a.click();
+  };
+  return (
+    <div>
+      <Mensaje msg={msg}/>
+      <div className="flex flex-wrap items-center gap-3 mb-4 text-sm">
+        <span className="text-gray-700"><b>{res.grupos.length}</b> panelistas con datos · <b>{res.productos.length}</b> vinos · <b>{res.grupos.reduce((s, g) => s + g.cols.length, 0)}</b> descriptores en total</span>
+        <span className="text-xs text-emerald-600">● en vivo</span>
+        {est.sesiones.length > 1 && (
+          <select value={sesion} onChange={e => setSesion(e.target.value)} className="border-2 border-gray-200 rounded-lg px-2 py-1">
+            <option value="">Todas las sesiones (rango medio)</option>
+            {est.sesiones.map(s => <option key={s.Sesion} value={s.Sesion}>Sesión {s.Sesion}</option>)}
+          </select>)}
+        <select value={mostrar} onChange={e => setMostrar(e.target.value)} className="border-2 border-gray-200 rounded-lg px-2 py-1">
+          <option value="buenos">Descriptores bien representados (r² ≥ 0,5)</option>
+          <option value="todos">Todos los descriptores</option>
+          <option value="ninguno">Solo los vinos</option>
+        </select>
+      </div>
+      <div className="grid xl:grid-cols-2 gap-6">
+        <div>
+          <h3 className="font-bold text-gray-800 mb-2">Mapa de consenso (Análisis Factorial Múltiple)</h3>
+          {vis
+            ? <>
+                <Biplot pca={vis} inv1={inv1} inv2={inv2} svgRef={svgRef}/>
+                <div className="flex flex-wrap gap-4 items-center text-xs text-gray-600 mt-2">
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={inv1} onChange={e => setInv1(e.target.checked)}/> Invertir Dim 1</label>
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={inv2} onChange={e => setInv2(e.target.checked)}/> Invertir Dim 2</label>
+                  <button onClick={bajarSVG} className="underline text-purple-700">Descargar gráfico (SVG)</button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Cada panelista es un grupo con sus propios descriptores (rangos, empates promediados). Igual que <code>FactoMineR::MFA(..., type = rep("s", {res.afm.grupos.length}))</code>.
+                  Para GPA, descargá la matriz en Resultados.
+                </p>
+              </>
+            : <p className="text-gray-500 border-2 border-dashed rounded-xl p-8 text-center">Se necesitan al menos 3 vinos y algún panelista que haya terminado la sesión.</p>}
+        </div>
+        <div className="space-y-6">
+          <div>
+            <h3 className="font-bold text-gray-800 mb-2">Términos más usados</h3>
+            {!res.terminos.length ? <p className="text-gray-500 text-sm">Todavía no hay datos.</p>
+              : <div className="flex flex-wrap gap-1">{res.terminos.slice(0, 60).map(([t, k]) => (
+                  <span key={t} className="text-sm rounded-full px-3 py-1 bg-amber-100 text-amber-900" style={{ fontSize: `${Math.min(1.25, 0.8 + 0.1 * k)}rem` }}>{t} <b>{k}</b></span>))}</div>}
+            <p className="text-xs text-gray-500 mt-1">El número es cuántos panelistas usaron ese término.</p>
+          </div>
+          <div>
+            <h3 className="font-bold text-gray-800 mb-2">Descriptores de cada panelista</h3>
+            <div className="overflow-auto max-h-[420px] border rounded-lg">
+              <table className="text-sm w-full">
+                <tbody>{res.grupos.map(g => (
+                  <tr key={g.v} className="border-t align-top">
+                    <td className="p-2 font-bold whitespace-nowrap">{g.v}</td>
+                    <td className="p-2">{g.cols.map(c => (
+                      <span key={c.a} title={g.def[c.a] || ''} className={`inline-block rounded px-2 py-0.5 mr-1 mb-1 ${g.def[c.a] ? 'bg-indigo-100 text-indigo-900 underline decoration-dotted' : 'bg-gray-100'}`}>{c.a}</span>))}</td>
+                  </tr>))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Pasá el mouse sobre los subrayados para ver cómo los evalúa el panelista.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResultadosFlash({ eid, est, priv }) {
+  const [resp, setResp] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const cargar = async () => { setMsg(null); try { setResp(await datos.respuestasEstudio(eid)); } catch (e) { setMsg({ t: 'error', m: textoError(e) }); } };
+  useEffect(() => { cargar(); }, [eid]);
+  if (!resp) return <div><Mensaje msg={msg}/><p className="text-gray-500">Cargando…</p></div>;
+  const d = datosFlash(est, priv, resp, '');
+  const base = est.nombre.replace(/[^\w\-]+/g, '_');
+  const colsL = ['Estudio', 'Sesion', 'Valuador', 'Orden', 'NombreProducto', 'Rep', 'CodigoProducto', 'Atributo', 'Rango', 'Definicion', 'timestamp'];
+  const grupos = d.grupos.filter(g => g.cols.length);
+  const colsM = ['Producto', ...grupos.flatMap(g => g.cols.map(c => c.col))];
+  const matriz = d.productos.map((p, i) => { const o = { Producto: p }; grupos.forEach(g => g.cols.forEach(c => { o[c.col] = c.x[i] ?? ''; })); return o; });
+  const tam = grupos.map(g => g.cols.length);
+  const codigoR = `library(FactoMineR)
+d <- read.csv("${base}_matriz.csv", row.names = 1, check.names = FALSE)
+grupos <- c(${tam.join(', ')})
+nombres <- c(${grupos.map(g => `"${g.v}"`).join(', ')})
+afm <- MFA(d, group = grupos, type = rep("s", length(grupos)), name.group = nombres)
+gpa <- GPA(d, group = grupos, name.group = nombres)`;
+  return (
+    <div>
+      <Mensaje msg={msg}/>
+      <p className="text-gray-700 mb-4"><b>{new Set(resp.map(r => `${r.Valuador}_${r.Sesion}`)).size}</b> sesiones de panelista enviadas de <b>{est.panelistas.length * est.sesiones.length}</b> · {d.largo.length} rangos.</p>
+      <div className="flex flex-wrap gap-3 mb-3">
+        <button onClick={() => descargar(`${base}_matriz.csv`, aCSV(matriz, colsM, ',', false))} disabled={!grupos.length}
+          className={btn + ' bg-emerald-600 hover:bg-emerald-700 text-white'}>Matriz para MFA / GPA (R)</button>
+        <button onClick={() => descargar(`${base}_matriz_excel.csv`, aCSV(matriz, colsM, ';', true))} disabled={!grupos.length}
+          className={btn + ' bg-emerald-100 hover:bg-emerald-200 text-emerald-800'}>Matriz (Excel)</button>
+        <button onClick={() => descargar(`${base}_rangos_largo.csv`, aCSV(d.largo, colsL, ',', false))} disabled={!d.largo.length}
+          className={btn + ' bg-emerald-600 hover:bg-emerald-700 text-white'}>Formato largo (R)</button>
+        <button onClick={() => descargar(`${base}_rangos_largo_excel.csv`, aCSV(d.largo, colsL, ';', true))} disabled={!d.largo.length}
+          className={btn + ' bg-emerald-100 hover:bg-emerald-200 text-emerald-800'}>Formato largo (Excel)</button>
+        <button onClick={cargar} className={btn + ' bg-gray-100 hover:bg-gray-200'}>Actualizar</button>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">
+        <b>Matriz:</b> una fila por vino y una columna por descriptor de cada panelista (<code>V1_Frutado</code>…), con el rango
+        (1 = menos intenso; empates promediados; si hubo repeticiones, rango medio). Es la entrada de MFA / GPA.
+        <b> Formato largo:</b> una fila por panelista × muestra × descriptor, con la sesión, la repetición y cómo evalúa cada descriptor.
+      </p>
+      {grupos.length > 0 && (
+        <>
+          <p className="text-sm font-semibold text-gray-700 mb-1">Código R para esta matriz</p>
+          <pre className="bg-gray-900 text-gray-100 text-xs rounded-lg p-3 overflow-auto mb-4">{codigoR}</pre>
+          <div className="overflow-auto max-h-[50vh] border rounded-lg">
+            <table className="text-xs">
+              <thead className="bg-gray-100 sticky top-0"><tr>{colsM.map(c => <th key={c} className="p-2 text-left whitespace-nowrap">{c}</th>)}</tr></thead>
+              <tbody>{matriz.map((f, i) => <tr key={i} className="border-t">{colsM.map(c => <td key={c} className="p-2 whitespace-nowrap">{typeof f[c] === 'number' ? fmt(f[c], f[c] % 1 ? 2 : 0) : f[c]}</td>)}</tr>)}</tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );

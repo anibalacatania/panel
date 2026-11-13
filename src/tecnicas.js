@@ -4,6 +4,7 @@ import { rng, barajar } from './diseno.js';
 export const TECNICAS = {
   descriptiva: { nombre: 'Análisis Descriptivo Cuantitativo', corto: 'ADC', color: 'bg-indigo-100 text-indigo-700' },
   rata: { nombre: 'RATA (Rate-All-That-Apply)', corto: 'RATA', color: 'bg-pink-100 text-pink-700' },
+  flash: { nombre: 'Perfil Flash', corto: 'Flash', color: 'bg-amber-100 text-amber-800' },
 };
 export const nombreTecnica = t => (TECNICAS[t] || TECNICAS.descriptiva).nombre;
 
@@ -77,4 +78,19 @@ export function bloquesDe(est, semillaTxt) {
 export function estructuraATexto(est) {
   if (!est.estructura) return est.atributos.join('\n');
   return est.estructura.map(i => (i.t === 'g1' ? '\n# ' + i.n : i.t === 'g2' ? '## ' + i.n : i.n)).join('\n').trim();
+}
+
+// Perfil Flash: de las posiciones elegidas por el panelista (1 = menos intenso; números repetidos = empate)
+// a rangos 1..n, con empates promediados (rango medio), como se analiza habitualmente.
+export function rangosDesdePosiciones(pos) {
+  const ks = Object.keys(pos).sort((a, b) => pos[a] - pos[b]);
+  const out = {};
+  let i = 0;
+  while (i < ks.length) {
+    let j = i; while (j + 1 < ks.length && pos[ks[j + 1]] === pos[ks[i]]) j++;
+    const r = (i + 1 + j + 1) / 2;
+    for (let t = i; t <= j; t++) out[ks[t]] = r;
+    i = j + 1;
+  }
+  return out;
 }

@@ -85,6 +85,21 @@ export function guardarRespuesta(eid, { Sesion, Valuador, Orden, CodigoProducto,
   return b.commit().finally(() => { pendientes--; avisar(); });
 }
 
+// Perfil Flash: se guarda la sesión completa de una vez (todas las muestras con el rango de cada
+// descriptor propio del panelista). def = cómo evalúa cada descriptor (opcional).
+export function guardarFlash(eid, { Sesion, Valuador, muestras, atributos, def }) {
+  const b = writeBatch(db);
+  for (const m of muestras) {
+    const doc0 = { Sesion, Valuador, Orden: m.Orden, CodigoProducto: m.CodigoProducto, valores: m.valores,
+      ts: serverTimestamp(), tsCliente: new Date().toISOString() };
+    if (def && Object.keys(def).length) doc0.def = def;
+    b.set(ses(eid, 'respuestas', `${Valuador}_${Sesion}_${m.Orden}`), doc0);
+  }
+  b.set(ses(eid, 'progreso', Valuador), { [Sesion]: arrayUnion(...muestras.map(m => m.Orden)), _atributos: atributos }, { merge: true });
+  pendientes++; avisar();
+  return b.commit().finally(() => { pendientes--; avisar(); });
+}
+
 // ------------------------------------------------------------- administración
 export function observarUsuario(cb) {
   let off = () => {}, vivo = true;
@@ -138,7 +153,7 @@ function limpiarEstudio(d) {
   return {
     nombre: d.nombre || 'Estudio', tecnica: d.tecnica || 'descriptiva', activo: !!d.activo,
     atributos: d.atributos || [], sesiones: d.sesiones || [], panelistas: d.panelistas || [],
-    estructura: d.estructura || null, escala: d.escala || 3, ordenAzar: !!d.ordenAzar,
+    estructura: d.estructura || null, escala: d.escala || 3, ordenAzar: !!d.ordenAzar, sugerencias: d.sugerencias || [],
     creado: d.creado && d.creado.toDate ? d.creado.toDate().toISOString() : null,
   };
 }
@@ -160,7 +175,7 @@ function docsDiseno(est) {
   return {
     estudio: {
       nombre: est.nombre, tecnica: est.tecnica || 'descriptiva', atributos: est.atributos,
-      estructura: est.estructura || null, escala: est.escala || 3, ordenAzar: !!est.ordenAzar,
+      estructura: est.estructura || null, escala: est.escala || 3, ordenAzar: !!est.ordenAzar, sugerencias: est.sugerencias || [],
       sesiones: est.sesiones.map(s => ({ Sesion: s.Sesion, NMuestras: s.NMuestras })),
       panelistas: est.panelistas,
     },

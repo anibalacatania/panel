@@ -115,3 +115,33 @@ export function pca(vinos, atributos, medias) {
   }));
   return { ind, vars, pct: [100 * valores[0] / total, 100 * valores[1] / total], excluidos: atributos.filter(a => !cols.some(c => c.a === a)) };
 }
+
+// Análisis Factorial Múltiple (como FactoMineR::MFA con todos los grupos type = "s"):
+// bloques = [{ nombre, cols: [{ a, x: [valor por fila] }] }]  (filas = productos)
+// Cada variable se estandariza; cada bloque se pondera por 1/λ1 del bloque; ACP global sin re-estandarizar.
+export function afm(filasNombres, bloques) {
+  const n = filasNombres.length;
+  if (n < 3) return null;
+  const est = x => { const m = x.reduce((s, y) => s + y, 0) / n; const sd = Math.sqrt(x.reduce((s, y) => s + (y - m) ** 2, 0) / n); return sd > 1e-9 ? x.map(y => (y - m) / sd) : null; };
+  const cols = [], grupos = [];
+  for (const b of bloques) {
+    const zs = b.cols.map(c => ({ a: c.a, z: est(c.x) })).filter(c => c.z);
+    if (!zs.length) continue;
+    const G = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => zs.reduce((s, c) => s + c.z[i] * c.z[j], 0) / n));
+    const l1 = jacobi(G).valores[0];
+    if (!(l1 > 1e-10)) continue;
+    const w = 1 / Math.sqrt(l1);
+    zs.forEach(c => cols.push({ a: c.a, grupo: b.nombre, z: c.z, w }));
+    grupos.push({ nombre: b.nombre, n: zs.length });
+  }
+  if (grupos.length < 1 || cols.length < 2) return null;
+  const G = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => cols.reduce((s, c) => s + c.w * c.w * c.z[i] * c.z[j], 0) / n));
+  const { valores, vectores } = jacobi(G);
+  const total = valores.reduce((s, v) => s + Math.max(0, v), 0);
+  if (!(valores[1] > 1e-10)) return null;
+  const ind = filasNombres.map((v, i) => ({ v, x: Math.sqrt(n * valores[0]) * vectores[0][i], y: Math.sqrt(n * valores[1]) * vectores[1][i] }));
+  const vars = cols.map(c => ({ a: c.a, grupo: c.grupo,
+    x: c.z.reduce((s, z, i) => s + z * vectores[0][i], 0) / Math.sqrt(n),
+    y: c.z.reduce((s, z, i) => s + z * vectores[1][i], 0) / Math.sqrt(n) }));
+  return { ind, vars, pct: [100 * valores[0] / total, 100 * valores[1] / total], grupos, excluidos: [] };
+}
