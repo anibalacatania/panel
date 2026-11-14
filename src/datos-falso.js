@@ -128,3 +128,7 @@ export function guardarFlash(eid, { Sesion, Valuador, muestras, atributos, def }
     s(`estudios/${eid}/progreso/${Valuador}`, p);
   })().finally(() => { pendientes--; avisar(); notificar(); });
 }
+
+export const configShiny = () => (window.__SHINY || null);
+export const proyectoId = () => 'demo';
+export async function tokenAdmin() { return esAdmin() ? 'TOKEN-OK' : null; }

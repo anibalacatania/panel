@@ -1470,6 +1470,36 @@ function datosFlash(est, priv, respuestas, sesion) {
   return { largo, productos, grupos };
 }
 
+// Abre el análisis completo en Shiny (R) y le pasa la sesión del administrador por postMessage,
+// solo al sitio configurado y solo a la ventana que se abrió desde acá. El token se renueva cada 45 min.
+let temporizadorShiny = null;
+function abrirShiny(eid, setMsg) {
+  const url = datos.configShiny(); if (!url) return;
+  const origen = new URL(url).origin;
+  const w = window.open(url + (url.includes('?') ? '&' : '?') + 'e=' + encodeURIComponent(eid), 'pf_shiny_' + eid);
+  if (!w) { setMsg && setMsg({ t: 'error', m: 'El navegador bloqueó la ventana nueva: permití ventanas emergentes para este sitio.' }); return; }
+  const enviar = async (destino, forzar) => {
+    const token = await datos.tokenAdmin(forzar);
+    if (token) destino.postMessage({ tipo: 'pf-token', token, proyecto: datos.proyectoId(), eid }, origen);
+  };
+  const oyente = ev => {
+    if (ev.origin !== origen || !ev.data || ev.data.tipo !== 'pf-shiny-listo') return;
+    let mia = ev.source === w; try { mia = mia || ev.source.top === w; } catch {}
+    if (!mia) return;
+    const fuente = ev.source;
+    enviar(fuente, false);
+    clearInterval(temporizadorShiny);
+    temporizadorShiny = setInterval(() => {
+      if (w.closed) { clearInterval(temporizadorShiny); window.removeEventListener('message', oyente); return; }
+      enviar(fuente, true);
+    }, 45 * 60 * 1000);
+  };
+  window.addEventListener('message', oyente);
+}
+const BotonShiny = ({ eid, setMsg }) => datos.configShiny()
+  ? <button onClick={() => abrirShiny(eid, setMsg)} className={btn + ' bg-indigo-600 hover:bg-indigo-700 text-white'}>Análisis completo en R (Shiny) ↗</button>
+  : null;
+
 function AnalisisFlash({ eid, est, priv }) {
   const [resp, setResp] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -1500,6 +1530,7 @@ function AnalisisFlash({ eid, est, priv }) {
       <div className="flex flex-wrap items-center gap-3 mb-4 text-sm">
         <span className="text-gray-700"><b>{res.grupos.length}</b> panelistas con datos · <b>{res.productos.length}</b> vinos · <b>{res.grupos.reduce((s, g) => s + g.cols.length, 0)}</b> descriptores en total</span>
         <span className="text-xs text-emerald-600">● en vivo</span>
+        <span className="ml-auto"><BotonShiny eid={eid} setMsg={setMsg}/></span>
         {est.sesiones.length > 1 && (
           <select value={sesion} onChange={e => setSesion(e.target.value)} className="border-2 border-gray-200 rounded-lg px-2 py-1">
             <option value="">Todas las sesiones (rango medio)</option>
@@ -1618,6 +1649,7 @@ gpa$consensus    # configuración de consenso (GPA)`;
         <button onClick={() => descargar(`${base}_rangos_largo_excel.csv`, aCSV(d.largo, colsL, ';', true))} disabled={!d.largo.length}
           className={btn + ' bg-emerald-100 hover:bg-emerald-200 text-emerald-800'}>Formato largo (Excel)</button>
         <button onClick={cargar} className={btn + ' bg-gray-100 hover:bg-gray-200'}>Actualizar</button>
+        <BotonShiny eid={eid} setMsg={setMsg}/>
       </div>
       <p className="text-xs text-gray-500 mb-4">
         <b>Matriz:</b> una fila por vino y una columna por descriptor de cada panelista (<code>V1_Frutado</code>…), con el rango

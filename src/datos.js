@@ -18,7 +18,7 @@ import {
 } from 'firebase/firestore';
 // El inicio de sesión (firebase/auth) solo lo usa el administrador: se carga aparte, a pedido,
 // así la app de los panelistas es más liviana.
-let db, auth, app, A;
+let db, auth, app, A, urlShiny = null;
 async function cargarAuth() {
   if (!A) {
     A = await import('firebase/auth');
@@ -31,6 +31,7 @@ export async function iniciar() {
   if (db) return;
   const cfg = await (await fetch('config.json?v=' + Date.now(), { cache: 'no-store' })).json();
   app = initializeApp(cfg.firebase);
+  urlShiny = cfg.shiny || null;
   // Administración: sin caché en disco (siempre datos frescos y no comparte cola de escritura con
   // pestañas de panelista abiertas en la misma computadora).
   // Panelistas: guarda en el dispositivo; sin internet sigue funcionando y sube todo al volver.
@@ -98,6 +99,15 @@ export function guardarFlash(eid, { Sesion, Valuador, muestras, atributos, def }
   b.set(ses(eid, 'progreso', Valuador), { [Sesion]: arrayUnion(...muestras.map(m => m.Orden)), _atributos: atributos }, { merge: true });
   pendientes++; avisar();
   return b.commit().finally(() => { pendientes--; avisar(); });
+}
+
+// ------------------------------------------------------------- análisis en Shiny (R)
+export const configShiny = () => urlShiny;
+export const proyectoId = () => app.options.projectId;
+// token de la sesión del administrador (Firebase ID token, dura 1 hora)
+export async function tokenAdmin(forzar) {
+  await cargarAuth();
+  return auth.currentUser ? auth.currentUser.getIdToken(!!forzar) : null;
 }
 
 // ------------------------------------------------------------- administración

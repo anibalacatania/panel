@@ -1,0 +1,44 @@
+<div style="max-width: 860px">
+<h4>Perfil Flash</h4>
+<p>Cada panelista recibe todas las copas juntas (letras A, B, C…), crea sus propios descriptores —solo los que
+diferencian los vinos, sin términos hedónicos— y para cada uno ordena las copas de menos a más, con empates permitidos.
+El resultado principal es la <b>posición relativa de los vinos</b>; la interpretación de los descriptores es secundaria
+y debe hacerse con cuidado (Delarue, 2015).</p>
+
+<h5>Datos</h5>
+<ul>
+<li>Rangos: 1 = menos intenso; los empates reciben el rango medio. La suma de rangos de cada descriptor es p(p+1)/2.</li>
+<li>Una tabla por panelista (vinos × sus descriptores); las tablas se analizan juntas. Con varias sesiones se usa el rango medio.</li>
+<li>Los descriptores con todos los vinos empatados no aportan información y se excluyen.</li>
+</ul>
+
+<h5>Análisis</h5>
+<ul>
+<li><b>GPA</b> (análisis de Procrustes generalizado): ajusta las configuraciones de los panelistas (traslación, rotación,
+escala) hasta un consenso. Es el método tradicional del Perfil Flash. El residuo de Procrustes de cada panelista indica
+cuánto se aparta del consenso.</li>
+<li><b>MFA</b> (análisis factorial múltiple): cada panelista es un grupo de variables ponderado para que ninguno domine.
+Da mapas muy parecidos al GPA y además el círculo de correlaciones de los descriptores y los coeficientes RV.</li>
+<li><b>RV</b>: parecido entre dos configuraciones (0 a 1). Se calcula entre panelistas y de cada panelista con el consenso.</li>
+<li><b>Elipses de confianza</b>: paneles virtuales por remuestreo de panelistas (Cadoret y Husson, 2013).</li>
+<li><b>Clasificación</b>: agrupamiento jerárquico (Ward) de los vinos sobre las coordenadas del MFA (HCPC).</li>
+<li><b>Repetibilidad</b>: con duplicados (mismo vino con otra letra) o con sesiones repetidas.</li>
+</ul>
+
+<h5>Precauciones (Delarue, 2015)</h5>
+<ul>
+<li>Al menos 4–5 panelistas; mejor con experiencia en evaluación sensorial o expertos en el producto.</li>
+<li>Dos panelistas pueden usar la misma palabra para percepciones distintas, y palabras distintas para lo mismo.</li>
+<li>Los datos son comparativos: no se pueden comparar resultados entre estudios distintos.</li>
+</ul>
+
+<h5>Referencias</h5>
+<ul class="small">
+<li>Delarue, J. (2015). Flash Profile. En P. Varela y G. Ares (eds.), <i>Novel Techniques in Sensory Characterization and Consumer Profiling</i>, cap. 7. CRC Press.</li>
+<li>Dairou, V. y Sieffermann, J.-M. (2002). A comparison of 14 jams characterized by conventional profile and a quick original method, the Flash Profile. <i>Journal of Food Science</i>, 67, 826–834.</li>
+<li>Cadoret, M. y Husson, F. (2013). Construction and evaluation of confidence ellipses applied at sensory data. <i>Food Quality and Preference</i>, 28, 106–115.</li>
+<li>Lê, S. y Husson, F. (2008). SensoMineR: a package for sensory data analysis. <i>Journal of Sensory Studies</i>, 23, 14–25.</li>
+<li>Escofier, B. y Pagès, J. (2008). <i>Analyses factorielles simples et multiples</i>. Dunod.</li>
+<li>Gower, J. C. (1975). Generalized Procrustes analysis. <i>Psychometrika</i>, 40, 33–51.</li>
+</ul>
+</div>

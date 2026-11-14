@@ -40,6 +40,8 @@ Los datos se guardan en **Firebase (Firestore)**; la app se publica en GitHub Pa
    - **Análisis en vivo:** medias por vino (y % de citación en RATA), ANOVA orientativa vino + panelista por descriptor,
      y PCA estandarizado sobre las medias (equivale a `FactoMineR::PCA(scale.unit = TRUE)`), filtrable por sesión y por
      descriptores que discriminan. El biplot se descarga en SVG.
+   - **Análisis completo en R (Shiny)** para Perfil Flash: botón en Análisis en vivo / Resultados que abre
+     https://acatania.shinyapps.io/perfilflash/ con los datos del estudio (ver `shiny/perfilflash/LEEME.md`).
    - **Resultados:** descarga en CSV para R (coma y punto decimal) o para Excel en español (punto y coma y coma decimal),
      con `NombreProducto` y `Rep` ya incluidos.
    - **Configuración:** link directo para panelistas (`?e=<id>`, útil para un QR), cerrar/reabrir, renombrar, borrar.

@@ -1,0 +1,99 @@
+---
+title: "Perfil Flash: `r params$nombre`"
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+params:
+  largo: NULL
+  nombre: "Estudio"
+  sesiones: NULL
+  dims: [1, 2]
+  nsim: 300
+  k: 3
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.width = 9, fig.height = 7, dpi = 150)
+suppressMessages({ library(FactoMineR); library(SensoMineR); library(ggplot2) })
+for (f in list.files("R", pattern = "\\.R$", full.names = TRUE)) source(f, encoding = "UTF-8")
+M <- armar_matriz(params$largo, params$sesiones)
+mfa <- correr_mfa(M); gpa <- correr_gpa(M)
+d <- params$dims
+```
+
+## Datos
+
+- Vinos: **`r nrow(M$d)`** · Panelistas: **`r length(M$nombres)`** · Descriptores: **`r ncol(M$d)`** (`r sprintf("%.1f", mean(M$grupos))` por panelista)
+- Sesiones analizadas: `r if (length(params$sesiones)) paste(params$sesiones, collapse = ", ") else paste(orden_nat(params$largo$Sesion), collapse = ", ")`
+- Rangos con empates promediados (1 = menos intenso). `r if (length(M$excluidas)) paste("No entran al análisis:", paste(M$excluidas, collapse = ", ")) else ""`
+
+```{r}
+knitr::kable(data.frame(Panelista = M$nombres,
+  Descriptores = vapply(M$nombres, function(p) paste(M$atributo[M$panelista == p], collapse = ", "), "")), row.names = FALSE)
+```
+
+## Mapa de consenso (MFA)
+
+```{r}
+g_consenso(mfa$ind$coord, mfa$eig[, 2], d, titulo = "Consenso MFA")
+```
+
+## Mapa de consenso (GPA)
+
+```{r}
+g_consenso(gpa$consensus, pct_gpa(gpa), d, titulo = "Consenso GPA")
+```
+
+## Elipses de confianza (95 %)
+
+Paneles virtuales por remuestreo de panelistas (`r params$nsim` simulaciones; Cadoret y Husson, 2013).
+
+```{r}
+set.seed(1); invisible(SensoMineR::boot(M$d, method = "freechoice", group = M$grupos, nbsim = params$nsim, new.plot = FALSE,
+  title = "Elipses de confianza (95%)"))
+```
+
+## Descriptores
+
+Interpretar con cuidado: distintos panelistas pueden usar una misma palabra para cosas distintas, y viceversa.
+
+```{r, fig.height = 9}
+g_circulo(mfa, M, d, 0.5)
+```
+
+```{r, fig.height = 6}
+g_terminos(frecuencia_terminos(params$largo))
+```
+
+## Panelistas
+
+```{r, fig.height = 5}
+g_barras(mfa$group$RV[M$nombres, "MFA"], "Acuerdo de cada panelista con el consenso (RV)", "RV", 0.5)
+```
+
+```{r, fig.height = 5}
+v <- gpa$PANOVA$config[M$nombres, "SSresidual"]; names(v) <- M$nombres
+g_barras(v, "Residuo de Procrustes por panelista (GPA)", "% de la variación total", invertir = TRUE)
+```
+
+```{r}
+g_rv(mfa$group$RV[M$nombres, M$nombres])
+```
+
+## Clasificación de los vinos
+
+```{r}
+hc <- correr_hcpc(mfa, params$k); plot(hc, choice = "tree", title = "Clasificación jerárquica")
+cl <- hc$data.clust$clust
+knitr::kable(data.frame(Grupo = sort(unique(cl)), Vinos = vapply(sort(unique(cl)), function(k) paste(rownames(hc$data.clust)[cl == k], collapse = ", "), "")), row.names = FALSE)
+```
+
+## Repetibilidad
+
+```{r, results = "asis"}
+dt <- duplicados(mfa)
+if (is.null(dt)) cat("Sin duplicados.\n\n") else print(knitr::kable(dt, row.names = FALSE))
+R <- rv_sesiones(params$largo)
+if (!is.null(R)) { cat("\nRV entre las configuraciones de cada sesión:\n\n"); print(knitr::kable(R)) }
+```
+
+---
+*Delarue, J. (2015). Flash Profile. En Varela y Ares (eds.), Novel Techniques in Sensory Characterization and Consumer Profiling, cap. 7. Análisis con FactoMineR y SensoMineR.*
