@@ -20,12 +20,16 @@ Los datos se guardan en **Firebase (Firestore)**; la app se publica en GitHub Pa
    - Opción: orden de los descriptores al azar por panelista (dentro de cada grupo) para reducir el sesgo por posición.
    - **RATA:** el panelista marca los descriptores presentes y elige la intensidad (bajo/medio/alto, o escala de 5).
      En resultados: 0 = no marcado, 1–3 (o 1–5) = intensidad. No se puede enviar un descriptor marcado sin intensidad.
-   - **Perfil Flash:** todas las muestras de una vez (cada repetición = una sesión; Williams define el orden en la bandeja).
-     Cada panelista escribe sus propios descriptores (con una definición opcional) y, para cada uno, ordena las muestras
-     de menos a más con empates permitidos. El borrador se guarda en el dispositivo hasta enviar la sesión completa.
-     Opcional: lista común de "ideas" de descriptores. En la siguiente sesión se le precargan sus descriptores.
-     Resultados: rangos 1..n con empates promediados; matriz vinos × (panelista_descriptor) lista para `MFA`/`GPA`
-     de FactoMineR (con el código R), y formato largo. Análisis en vivo: mapa de consenso por AFM y términos más usados.
+   - **Perfil Flash** (según Delarue, cap. 7 de *Novel Techniques in Sensory Characterization and Consumer Profiling*):
+     todas las copas juntas, marcadas con **letras** (A, B, C…) sorteadas entre los vinos e iguales para todos los panelistas;
+     **sin Williams**. Cada repetición es una sesión con un nuevo sorteo. Duplicados ocultos opcionales para mirar repetibilidad.
+     Cada panelista escribe sus descriptores (no hedónicos, solo los que diferencian; definición y extremos de escala opcionales)
+     y, para cada uno, **arrastra las letras** sobre una línea de menos a más; **apilar** dos letras = empate. También se puede
+     tocar una letra y después tocar dónde va. Puede agregar descriptores mientras ordena. Borrador guardado en el dispositivo.
+     Lista de ayuda opcional (agrupable con `# Modalidad`). Planilla de servicio con la clave letra → vino y etiquetas imprimibles.
+     Resultados: rangos 1..n con empates promediados (control de suma p(p+1)/2), matriz vinos × (panelista_descriptor) para
+     `MFA`/`GPA` de FactoMineR con el código R, y formato largo. Análisis en vivo: AFM de consenso, RV de cada panelista con el
+     consenso, términos más usados.
    - Repetición = cuántas veces pasa cada vino por el panel. Sesión = cada reunión.
    - 8 vinos × 3 rep = 24 muestras; de a 6 → 4 sesiones; de a 7 → 7+7+7+3 (o 6+6+6+6 con “repartir parejo”).
    - Un vino nunca se repite dentro de una sesión. Orden por panelista: cuadrado de Williams.

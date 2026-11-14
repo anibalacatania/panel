@@ -132,13 +132,17 @@ export function afm(filasNombres, bloques) {
     if (!(l1 > 1e-10)) continue;
     const w = 1 / Math.sqrt(l1);
     zs.forEach(c => cols.push({ a: c.a, grupo: b.nombre, z: c.z, w }));
-    grupos.push({ nombre: b.nombre, n: zs.length });
+    grupos.push({ nombre: b.nombre, n: zs.length, W: G });
   }
   if (grupos.length < 1 || cols.length < 2) return null;
   const G = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => cols.reduce((s, c) => s + c.w * c.w * c.z[i] * c.z[j], 0) / n));
   const { valores, vectores } = jacobi(G);
   const total = valores.reduce((s, v) => s + Math.max(0, v), 0);
   if (!(valores[1] > 1e-10)) return null;
+  // RV de cada panelista con el consenso (como res$group$RV[, "MFA"] de FactoMineR): 1 = misma configuración
+  const tr = (A, B) => { let t = 0; for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) t += A[i][j] * B[j][i]; return t; };
+  const tGG = tr(G, G);
+  grupos.forEach(g => { g.rv = tr(g.W, G) / Math.sqrt(tr(g.W, g.W) * tGG); delete g.W; });
   const ind = filasNombres.map((v, i) => ({ v, x: Math.sqrt(n * valores[0]) * vectores[0][i], y: Math.sqrt(n * valores[1]) * vectores[1][i] }));
   const vars = cols.map(c => ({ a: c.a, grupo: c.grupo,
     x: c.z.reduce((s, z, i) => s + z * vectores[0][i], 0) / Math.sqrt(n),

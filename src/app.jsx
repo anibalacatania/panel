@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as datos from 'datos';
-import { ordenNatural, tamaniosSesiones, generarDiseno } from './diseno.js';
+import { ordenNatural, tamaniosSesiones, generarDiseno, generarDisenoFlash, LETRAS } from './diseno.js';
 import { TECNICAS, nombreTecnica, etiquetasRata, parsearDescriptores, bloquesDe, rangosDesdePosiciones } from './tecnicas.js';
 import { analizar, afm } from './analisis.js';
 
@@ -438,43 +438,177 @@ function EvaluacionRata({ bloques, valores, cambiar, etiquetas, faltan }) {
   );
 }
 
-// ---- Perfil Flash: el panelista genera sus descriptores y ordena todas las muestras para cada uno
-function lineaOrden(muestras, pos) {
-  const con = muestras.filter(m => pos[m.Orden] != null);
-  const grupos = {};
-  con.forEach(m => { (grupos[pos[m.Orden]] = grupos[pos[m.Orden]] || []).push(m.CodigoProducto); });
-  return Object.keys(grupos).map(Number).sort((a, b) => a - b).map(k => grupos[k]);
+// ---- Perfil Flash (Delarue, cap. 7): cada panelista crea sus descriptores y, para cada uno, ordena todas las
+// copas (letras) de menos a más, con empates. Las copas se arrastran con el dedo; apilarlas = empate.
+
+// mueve una copa: tipo 'unir' (apilar en el grupo i = empate), 'insertar' (nuevo lugar k) o 'bandeja' (sacar)
+function moverCopa(grupos, orden, destino) {
+  const g = grupos.map(x => x.filter(o => o !== orden));
+  if (destino.tipo === 'unir') g[destino.i].push(orden);
+  else if (destino.tipo === 'insertar') g.splice(destino.k, 0, [orden]);
+  return g.filter(x => x.length);
 }
 
-function SesionFlash({ eid, estudio, valuador, sesion, muestras, previos, pendientes, cerrado, setCerrado, alTerminar, salir }) {
-  const clave = `pf_flash_${eid}_${valuador}_${sesion.Sesion}`;
-  const inicial = LS.get(clave, null) || {
-    paso: 'desc', i: 0, pos: {},
-    atributos: (previos || []).map(n => ({ n, def: '' })),
-  };
-  const [st, setSt] = useState(inicial);
-  const [nuevo, setNuevo] = useState('');
-  const [aviso, setAviso] = useState('');
-  const [enviando, setEnviando] = useState(false);
-  useEffect(() => { LS.set(clave, st); }, [st]);
-  const upd = cambios => setSt(prev => ({ ...prev, ...cambios }));
+function TableroOrden({ muestras, grupos, setGrupos, izq, der }) {
+  const porOrden = useMemo(() => Object.fromEntries(muestras.map(m => [m.Orden, m])), [muestras]);
+  const ubicadas = new Set(grupos.flat());
+  const sueltas = muestras.filter(m => !ubicadas.has(m.Orden));
+  const [drag, setDrag] = useState(null);        // { orden, x, y, destino, barra }
+  const [sel, setSel] = useState(null);          // modo tocar: copa elegida
+  const ini = React.useRef(null);
+  const tablero = React.useRef(null), bandeja = React.useRef(null), cols = React.useRef([]);
   const n = muestras.length;
-  const nombres = st.atributos.map(a => a.n);
+  const lado = `min(3.5rem, calc((100vw - 3rem) / ${Math.max(5, n)} - 0.5rem))`;
 
-  const agregar = (txt) => {
-    const t = String(txt || '').replace(/\s+/g, ' ').trim().replace(/\|/g, '/').slice(0, 60);
-    if (!t) return;
-    if (nombres.some(x => x.toLowerCase() === t.toLowerCase())) { setAviso(`“${t}” ya está en tu lista.`); return; }
-    setAviso(''); upd({ atributos: [...st.atributos, { n: t, def: '' }] }); setNuevo('');
+  const destinoEn = (x, y) => {
+    const dentro = (r, m = 0) => r && x >= r.left - m && x <= r.right + m && y >= r.top - m && y <= r.bottom + m;
+    const rb = bandeja.current && bandeja.current.getBoundingClientRect();
+    if (dentro(rb, 8)) return { tipo: 'bandeja' };
+    const rt = tablero.current && tablero.current.getBoundingClientRect();
+    if (!rt || y < rt.top - 40 || y > rt.bottom + 60) return null;
+    const rs = grupos.map((_, i) => cols.current[i] && cols.current[i].getBoundingClientRect()).filter(Boolean);
+    for (let i = 0; i < rs.length; i++) {
+      const r = rs[i], m = r.width * 0.22;
+      if (x >= r.left + m && x <= r.right - m) return { tipo: 'unir', i };
+    }
+    let k = rs.filter(r => (r.left + r.right) / 2 < x).length;
+    const xb = !rs.length ? rt.left + rt.width / 2 : k === 0 ? rs[0].left - 6 : k === rs.length ? rs[rs.length - 1].right + 6 : (rs[k - 1].right + rs[k].left) / 2;
+    return { tipo: 'insertar', k, barra: xb - rt.left };
   };
-  const quitar = (k) => upd({ atributos: st.atributos.filter(a => a.n !== k) });
-  const completo = (a) => muestras.every(m => st.pos[a] && st.pos[a][m.Orden] != null);
-  const poner = (a, orden, v) => { setAviso(''); upd({ pos: { ...st.pos, [a]: { ...(st.pos[a] || {}), [orden]: v } } }); };
 
-  const enviar = async () => {
-    setEnviando(true);
-    const rangos = {}; nombres.forEach(a => { rangos[a] = rangosDesdePosiciones(st.pos[a]); });
-    const def = {}; st.atributos.forEach(a => { if (a.def.trim()) def[a.n] = a.def.trim().slice(0, 300); });
+  const abajo = (e, orden) => {
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    ini.current = { orden, x: e.clientX, y: e.clientY, mov: false };
+  };
+  const mueve = (e) => {
+    const s = ini.current; if (!s) return;
+    if (!s.mov && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 6) return;
+    s.mov = true; setSel(null);
+    setDrag({ orden: s.orden, x: e.clientX, y: e.clientY, destino: destinoEn(e.clientX, e.clientY) });
+  };
+  const arriba = (e) => {
+    const s = ini.current; ini.current = null;
+    if (!s) return;
+    if (s.mov) {
+      const d = destinoEn(e.clientX, e.clientY);
+      if (d) setGrupos(moverCopa(grupos, s.orden, d));
+      setDrag(null);
+    } else {
+      // tocar: con otra copa elegida, tocar una copa ya ubicada = apilar ahí; si no, elegir/soltar esta
+      const i = grupos.findIndex(g => g.includes(s.orden));
+      if (sel != null && sel !== s.orden && i >= 0) { setGrupos(moverCopa(grupos, sel, { tipo: 'unir', i })); setSel(null); }
+      else setSel(x => (x === s.orden ? null : s.orden));
+    }
+  };
+  const cancelar = () => { ini.current = null; setDrag(null); };
+  const tocar = (destino) => { if (sel != null) { setGrupos(moverCopa(grupos, sel, destino)); setSel(null); } };
+
+  // (función, no componente: así el elemento no se re-crea durante el arrastre y no se pierde el dedo)
+  const copa = (orden) => {
+    const m = porOrden[orden];
+    const arrastrando = drag && drag.orden === orden;
+    return (
+      <div key={orden} onClick={e => e.stopPropagation()} onPointerDown={e => abajo(e, orden)} onPointerMove={mueve} onPointerUp={arriba} onPointerCancel={cancelar}
+        data-copa={m.CodigoProducto}
+        style={{ width: lado, height: lado, touchAction: 'none' }}
+        className={`select-none cursor-grab active:cursor-grabbing rounded-xl flex items-center justify-center font-black text-2xl shadow-lg border-2 transition-transform
+          bg-gradient-to-br from-yellow-300 to-orange-500 text-gray-900
+          ${arrastrando ? 'opacity-30' : ''} ${sel === orden ? 'ring-4 ring-pink-400 border-white scale-110' : 'border-orange-600/40'}`}>
+        {m.CodigoProducto}
+      </div>
+    );
+  };
+
+  const d = drag && drag.destino;
+  return (
+    <div>
+      {/* bandeja: copas sin ubicar */}
+      <div ref={bandeja} onClick={() => tocar({ tipo: 'bandeja' })} data-zona="bandeja"
+        className={`rounded-2xl border-2 border-dashed p-3 mb-4 min-h-[4.5rem] ${d && d.tipo === 'bandeja' ? 'border-pink-400 bg-pink-500/10' : 'border-white/30'}`}>
+        <p className="text-xs text-purple-200 mb-2">{sueltas.length ? 'Copas sin ubicar — arrastralas a la línea' : 'Todas las copas están ubicadas ✓'}</p>
+        <div className="flex flex-wrap gap-2">{sueltas.map(m => copa(m.Orden))}</div>
+      </div>
+
+      {/* línea de menos a más */}
+      <div className="relative">
+        <div ref={tablero} data-zona="linea" className="relative flex items-end gap-2 min-h-[9rem] px-2 pb-2 pt-3 rounded-2xl bg-slate-900/40 overflow-x-auto">
+          {sel != null && <button onClick={() => tocar({ tipo: 'insertar', k: 0 })} className="self-stretch px-2 rounded-lg border-2 border-dashed border-pink-400 text-pink-300 font-bold" data-insertar="0">＋</button>}
+          {grupos.map((g, i) => (
+            <React.Fragment key={g.join('-')}>
+              <div ref={el => { cols.current[i] = el; }} onClick={() => tocar({ tipo: 'unir', i })} data-grupo={i}
+                className={`flex flex-col-reverse items-center gap-1 p-1 rounded-xl ${d && d.tipo === 'unir' && d.i === i ? 'bg-pink-500/30 ring-2 ring-pink-400' : sel != null ? 'bg-white/5 ring-1 ring-white/20' : ''}`}>
+                {g.map(o => copa(o))}
+                {g.length > 1 && <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wide">empate</span>}
+              </div>
+              {sel != null && <button onClick={() => tocar({ tipo: 'insertar', k: i + 1 })} className="self-stretch px-2 rounded-lg border-2 border-dashed border-pink-400 text-pink-300 font-bold" data-insertar={i + 1}>＋</button>}
+            </React.Fragment>
+          ))}
+          {!grupos.length && <p className="m-auto text-purple-200/70 text-sm text-center px-4">Arrastrá acá las copas: a la izquierda la que menos tiene, a la derecha la que más.<br/>Si dos son iguales, poné una encima de la otra.</p>}
+          {d && d.tipo === 'insertar' && <div className="absolute top-2 bottom-2 w-1 rounded bg-pink-400 shadow-[0_0_12px_rgba(244,114,182,0.9)]" style={{ left: d.barra - 2 }} />}
+        </div>
+        <div className="flex items-center gap-2 mt-2 text-sm font-bold">
+          <span className="text-sky-300 whitespace-nowrap">− {izq || 'menos'}</span>
+          <div className="flex-1 h-1 rounded bg-gradient-to-r from-sky-400 to-pink-500 relative"><span className="absolute -right-1 -top-2 text-pink-500">▶</span></div>
+          <span className="text-pink-300 whitespace-nowrap">{der || 'más'} +</span>
+        </div>
+      </div>
+
+      {sel != null && <p className="text-xs text-pink-200 mt-2">Copa {porOrden[sel].CodigoProducto} elegida: tocá una columna para apilarla (empate), un ＋ para ponerla en un lugar nuevo, o la bandeja para sacarla.</p>}
+
+      {drag && (
+        <div className="fixed z-50 pointer-events-none rounded-xl flex items-center justify-center font-black text-2xl shadow-2xl bg-gradient-to-br from-yellow-300 to-orange-500 text-gray-900 border-2 border-white"
+          style={{ width: 56, height: 56, left: drag.x - 28, top: drag.y - 28, transform: 'rotate(-6deg) scale(1.1)' }}>
+          {porOrden[drag.orden].CodigoProducto}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const textoLinea = (muestras, grupos) => {
+  const c = Object.fromEntries(muestras.map(m => [m.Orden, m.CodigoProducto]));
+  return grupos.map(g => g.map(o => c[o]).sort().join(' = '));
+};
+
+function SesionFlash({ eid, estudio, valuador, sesion, muestras: muestras0, previos, pendientes, cerrado, setCerrado, alTerminar, salir }) {
+  const muestras = useMemo(() => [...muestras0].sort((a, b) => String(a.CodigoProducto).localeCompare(String(b.CodigoProducto))), [muestras0]);
+  const clave = `pf_flash2_${eid}_${valuador}_${sesion.Sesion}`;
+  const [st, setSt] = useState(() => LS.get(clave, null) || {
+    paso: 'desc', i: 0, orden: {},
+    atributos: (previos || []).map(n => ({ n, def: '', izq: '', der: '' })),
+  });
+  const [nuevo, setNuevo] = useState('');
+  const [nuevo2, setNuevo2] = useState('');
+  const [aviso, setAviso] = useState('');
+  useEffect(() => { LS.set(clave, st); }, [st]);
+  const upd = c => setSt(prev => ({ ...prev, ...(typeof c === 'function' ? c(prev) : c) }));
+  const nombres = st.atributos.map(a => a.n);
+  const ideas = useMemo(() => {
+    const p = parsearDescriptores((estudio.sugerencias || []).join('\n'));
+    return bloquesDe({ estructura: p.estructura, atributos: p.claves }, '').map(b => ({ ...b, attrs: [...b.attrs].sort((x, y) => x.n.localeCompare(y.n, 'es')) }));
+  }, [estudio]);
+
+  const agregar = (txt, alFinal) => {
+    const t = String(txt || '').replace(/\s+/g, ' ').trim().replace(/\|/g, '/').slice(0, 60);
+    if (!t) return false;
+    if (nombres.some(x => x.toLowerCase() === t.toLowerCase())) { setAviso(`“${t}” ya está en tu lista.`); return false; }
+    setAviso(''); upd(prev => ({ atributos: [...prev.atributos, { n: t, def: '', izq: '', der: '' }] }));
+    return true;
+  };
+  const cambiarAttr = (n, c) => upd(prev => ({ atributos: prev.atributos.map(x => (x.n === n ? { ...x, ...c } : x)) }));
+  const quitar = (n) => upd(prev => ({ atributos: prev.atributos.filter(a => a.n !== n) }));
+  const gruposDe = a => st.orden[a] || [];
+  const completo = a => gruposDe(a).flat().length === muestras.length;
+
+  const enviar = () => {
+    const def = {};
+    st.atributos.forEach(a => {
+      const esc = (a.izq.trim() || a.der.trim()) ? `Escala: ${a.izq.trim() || 'menos'} → ${a.der.trim() || 'más'}. ` : '';
+      const t = (esc + a.def.trim()).trim(); if (t) def[a.n] = t.slice(0, 300);
+    });
+    const rangos = {};
+    nombres.forEach(a => { const pos = {}; gruposDe(a).forEach((g, i) => g.forEach(o => { pos[o] = i + 1; })); rangos[a] = rangosDesdePosiciones(pos); });
     const payload = muestras.map(m => {
       const valores = {}; nombres.forEach(a => { valores[a] = rangos[a][m.Orden]; });
       return { Orden: m.Orden, CodigoProducto: m.CodigoProducto, valores };
@@ -485,51 +619,62 @@ function SesionFlash({ eid, estudio, valuador, sesion, muestras, previos, pendie
     alTerminar(muestras.map(m => m.Orden));
   };
 
-  const Cabecera = () => (
-    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-5 mb-5 border border-white/20">
+  const caja = 'bg-white/10 backdrop-blur-lg rounded-2xl p-5 mb-5 border border-white/20';
+  const btnP = 'w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-4 rounded-xl shadow-2xl text-lg disabled:opacity-40';
+  const btnS = 'w-full bg-white/10 hover:bg-white/20 border-2 border-white/30 text-white font-semibold py-3 rounded-xl';
+  const cabecera = (
+    <div className={caja}>
       <div className="flex items-center justify-between mb-3">
         <div>
           <h2 className="text-xl font-bold text-white">Panelista {valuador} · Sesión {sesion.Sesion.replace(/^S/, '')}</h2>
-          <p className="text-purple-200">Perfil Flash · {n} muestras</p>
+          <p className="text-purple-200">Perfil Flash · {muestras.length} copas</p>
           <div className="mt-1"><EstadoNube pendientes={pendientes} oscuro /></div>
         </div>
-        <button onClick={salir} className="text-sm text-purple-200 hover:text-white underline">Salir (se guarda el borrador)</button>
+        <button onClick={salir} className="text-sm text-purple-200 hover:text-white underline">Pausa / salir (queda guardado)</button>
       </div>
       {cerrado && <p className="text-sm bg-red-50 text-red-700 p-3 rounded-lg mb-3">Este estudio fue cerrado por el administrador: las respuestas nuevas no se pueden guardar.</p>}
-      <p className="text-purple-100 text-sm mb-2">Tus muestras, en este orden en la bandeja (de izquierda a derecha):</p>
-      <div className="flex flex-wrap gap-2">
-        {muestras.map(m => <span key={m.Orden} className="bg-gradient-to-br from-yellow-400 to-orange-500 text-gray-900 font-bold text-xl px-3 py-1 rounded-lg shadow">{m.CodigoProducto}</span>)}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-purple-100 text-sm mr-1">Tus copas:</span>
+        {muestras.map(m => <span key={m.Orden} className="bg-gradient-to-br from-yellow-300 to-orange-500 text-gray-900 font-black text-lg w-9 h-9 flex items-center justify-center rounded-lg shadow">{m.CodigoProducto}</span>)}
       </div>
     </div>
   );
 
-  const caja = 'bg-white/10 backdrop-blur-lg rounded-2xl p-5 mb-5 border border-white/20';
-  const btnP = 'w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold py-4 rounded-xl shadow-2xl text-lg disabled:opacity-40';
-  const btnS = 'w-full bg-white/10 hover:bg-white/20 border-2 border-white/30 text-white font-semibold py-3 rounded-xl';
-
-  // 1) generación de descriptores
+  // 1) descriptores
   if (st.paso === 'desc') {
-    const sug = (estudio.sugerencias || []).filter(x => !nombres.some(y => y.toLowerCase() === x.toLowerCase()));
     return (
       <div className="min-h-screen py-6 px-4"><div className="max-w-4xl mx-auto">
-        <Cabecera/>
+        {cabecera}
         <div className={caja}>
           <h3 className="text-xl font-bold text-white mb-2">1. Tus descriptores</h3>
-          <p className="text-purple-100 text-sm mb-4">
-            Probá <b>todas</b> las muestras y escribí los descriptores que te sirven para <b>diferenciarlas</b> (aroma, sabor, textura…).
-            Usá tus propias palabras. No pongas gustos (“rico”, “feo”): solo características. No hace falta una lista larga: solo lo que las distingue.
-          </p>
+          <div className="text-purple-100 text-sm space-y-2 mb-4">
+            <p>Mirá, oledé y probá <b>todas las copas</b>, comparándolas entre sí (podés volver a probar cuantas veces quieras).
+              Anotá los descriptores que te sirven para <b>diferenciarlas</b>: color, aroma, sabor, sensaciones en boca…</p>
+            <p>Usá tus propias palabras. <b>Nada de gustos</b> (“rico”, “feo”): solo características. Concentrate en las diferencias
+              que percibís; no hace falta una lista larga. Podés agregar más descriptores después, mientras ordenás.</p>
+          </div>
+          <details className="mb-4 bg-white/5 rounded-xl p-3 border border-white/10">
+            <summary className="text-sm text-pink-200 cursor-pointer font-semibold">Ver un ejemplo</summary>
+            <p className="text-sm text-purple-100 mt-2">Con 4 galletitas (A, B, C, D), alguien podría usar “Crocante”, “Dulce” y “Color tostado”.
+              Para “Crocante” las ordena de menos a más: <b>B · A = D · C</b> (A y D le parecen iguales, así que van apiladas).</p>
+          </details>
           <div className="flex gap-2 mb-2">
-            <input value={nuevo} onChange={e => setNuevo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') agregar(nuevo); }}
-              placeholder="Ej: Frutos rojos" className="flex-1 rounded-lg px-4 py-3 text-lg text-gray-900" />
-            <button onClick={() => agregar(nuevo)} className="bg-pink-500 hover:bg-pink-600 text-white font-bold px-5 rounded-lg">Agregar</button>
+            <input value={nuevo} onChange={e => setNuevo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && agregar(nuevo)) setNuevo(''); }}
+              placeholder="Escribí un descriptor, ej: Frutos rojos" className="flex-1 min-w-0 rounded-lg px-4 py-3 text-lg text-gray-900" />
+            <button onClick={() => { if (agregar(nuevo)) setNuevo(''); }} className="bg-pink-500 hover:bg-pink-600 text-white font-bold px-5 rounded-lg">Agregar</button>
           </div>
           {aviso && <p className="text-amber-300 text-sm mb-2">{aviso}</p>}
-          {sug.length > 0 && (
-            <div className="mb-4">
-              <p className="text-purple-200 text-xs mb-1">Ideas (tocá para agregar, solo si te sirven):</p>
-              <div className="flex flex-wrap gap-1">{sug.map(x => <button key={x} onClick={() => agregar(x)} className="text-sm bg-white/10 hover:bg-white/25 text-white px-3 py-1 rounded-full border border-white/20">+ {x}</button>)}</div>
-            </div>
+          {ideas.some(b => b.attrs.length) && (
+            <details className="mb-4">
+              <summary className="text-purple-200 text-xs cursor-pointer">Lista de ayuda (tocá una palabra para agregarla, solo si te sirve)</summary>
+              <div className="mt-2 space-y-2">{ideas.map((b, i) => (
+                <div key={i}>
+                  {(b.g1 || b.g2) && <p className="text-[11px] uppercase tracking-wide text-purple-300 font-bold">{[b.g1, b.g2].filter(Boolean).join(' · ')}</p>}
+                  <div className="flex flex-wrap gap-1">{b.attrs.filter(x => !nombres.some(y => y.toLowerCase() === x.n.toLowerCase())).map(x =>
+                    <button key={x.k} onClick={() => agregar(x.n)} className="text-sm bg-white/10 hover:bg-white/25 text-white px-3 py-1 rounded-full border border-white/20">+ {x.n}</button>)}</div>
+                </div>))}
+              </div>
+            </details>
           )}
           <div className="space-y-2 mt-4">
             {st.atributos.map((a, i) => (
@@ -539,15 +684,25 @@ function SesionFlash({ eid, estudio, valuador, sesion, muestras, previos, pendie
                   <span className="text-white font-semibold text-lg flex-1">{a.n}</span>
                   <button onClick={() => quitar(a.n)} className="text-slate-300 hover:text-red-400 text-xl px-2" title="Quitar">✕</button>
                 </div>
-                <input value={a.def} onChange={e => upd({ atributos: st.atributos.map(x => x.n === a.n ? { ...x, def: e.target.value } : x) })}
-                  placeholder="¿Cómo lo evaluás? (opcional, ej: en boca, después de 5 segundos)" className="mt-2 w-full rounded-lg px-3 py-2 text-sm bg-white/90 text-gray-800" />
+                <details className="mt-1 ml-9">
+                  <summary className="text-xs text-purple-200 cursor-pointer">Opcional: cómo lo evaluás y extremos de la escala</summary>
+                  <input value={a.def} onChange={e => cambiarAttr(a.n, { def: e.target.value })}
+                    placeholder="Cómo lo evaluás (ej: en boca, después de 5 segundos)" className="mt-2 w-full rounded-lg px-3 py-2 text-sm bg-white/90 text-gray-800" />
+                  <div className="flex items-center gap-2 mt-2 text-xs text-purple-200">
+                    <span>De</span>
+                    <input value={a.izq} onChange={e => cambiarAttr(a.n, { izq: e.target.value.slice(0, 30) })} placeholder="menos" className="w-28 rounded px-2 py-1 bg-white/90 text-gray-800" />
+                    <span>a</span>
+                    <input value={a.der} onChange={e => cambiarAttr(a.n, { der: e.target.value.slice(0, 30) })} placeholder="más" className="w-28 rounded px-2 py-1 bg-white/90 text-gray-800" />
+                    <span className="hidden sm:inline">(ej: de amarillo a marrón)</span>
+                  </div>
+                </details>
               </div>
             ))}
             {!st.atributos.length && <p className="text-purple-200 text-sm italic">Todavía no agregaste descriptores.</p>}
           </div>
         </div>
-        <button disabled={!st.atributos.length} onClick={() => upd({ paso: 'rank', i: 0 })} className={btnP}>
-          Ordenar las muestras ({st.atributos.length} descriptor{st.atributos.length === 1 ? '' : 'es'}) →
+        <button disabled={!st.atributos.length} onClick={() => { setAviso(''); upd({ paso: 'rank', i: 0 }); window.scrollTo(0, 0); }} className={btnP}>
+          Ordenar las copas ({st.atributos.length} descriptor{st.atributos.length === 1 ? '' : 'es'}) →
         </button>
       </div></div>
     );
@@ -557,90 +712,69 @@ function SesionFlash({ eid, estudio, valuador, sesion, muestras, previos, pendie
   if (st.paso === 'revisar') {
     return (
       <div className="min-h-screen py-6 px-4"><div className="max-w-4xl mx-auto">
-        <Cabecera/>
+        {cabecera}
         <div className={caja}>
           <h3 className="text-xl font-bold text-white mb-4">3. Revisá y enviá</h3>
           <div className="space-y-3">
-            {nombres.map((a, i) => (
-              <button key={a} onClick={() => upd({ paso: 'rank', i })} className="w-full text-left bg-slate-800/70 hover:bg-slate-700/70 border border-slate-600/60 rounded-xl p-3">
-                <p className="text-white font-semibold mb-1">{a} <span className="text-xs text-purple-300 font-normal">(tocá para cambiar)</span></p>
+            {st.atributos.map((at, i) => (
+              <button key={at.n} onClick={() => upd({ paso: 'rank', i })} className="w-full text-left bg-slate-800/70 hover:bg-slate-700/70 border border-slate-600/60 rounded-xl p-3">
+                <p className="text-white font-semibold mb-1">{at.n} <span className="text-xs text-purple-300 font-normal">(tocá para cambiar)</span></p>
                 <div className="flex items-center gap-2 flex-wrap text-sm">
-                  <span className="text-purple-300">menos</span>
-                  {lineaOrden(muestras, st.pos[a] || {}).map((g, j) => (
-                    <span key={j} className={`px-2 py-0.5 rounded font-bold ${g.length > 1 ? 'bg-amber-300 text-amber-900' : 'bg-white text-gray-900'}`}>{g.join(' = ')}</span>))}
-                  <span className="text-purple-300">más</span>
+                  <span className="text-sky-300">{at.izq || 'menos'}</span>
+                  {textoLinea(muestras, gruposDe(at.n)).map((g, j) => (
+                    <span key={j} className={`px-2 py-0.5 rounded font-bold ${g.includes('=') ? 'bg-amber-300 text-amber-900' : 'bg-white text-gray-900'}`}>{g}</span>))}
+                  <span className="text-pink-300">{at.der || 'más'}</span>
                 </div>
               </button>))}
           </div>
         </div>
         <div className="space-y-3">
-          <button disabled={enviando} onClick={enviar} className={btnP}>Enviar sesión ✓</button>
+          <button onClick={enviar} className={btnP}>Enviar sesión ✓</button>
           <button onClick={() => upd({ paso: 'desc' })} className={btnS}>← Cambiar mis descriptores</button>
         </div>
       </div></div>
     );
   }
 
-  // 2) ordenamiento, un descriptor a la vez
+  // 2) ordenar, un descriptor a la vez
   const i = Math.min(st.i, nombres.length - 1);
-  const a = nombres[i];
-  const def = (st.atributos.find(x => x.n === a) || {}).def;
-  const pos = st.pos[a] || {};
-  const todosIguales = completo(a) && new Set(muestras.map(m => pos[m.Orden])).size === 1;
+  const at = st.atributos[i];
+  const grupos = gruposDe(at.n);
+  const todosIguales = completo(at.n) && grupos.length === 1;
   const siguiente = () => {
-    if (!completo(a)) { setAviso('Falta ubicar alguna muestra.'); return; }
+    if (!completo(at.n)) { setAviso('Falta ubicar alguna copa en la línea.'); return; }
     setAviso('');
     if (i + 1 < nombres.length) upd({ i: i + 1 }); else upd({ paso: 'revisar' });
     window.scrollTo(0, 0);
   };
   return (
     <div className="min-h-screen py-6 px-4"><div className="max-w-4xl mx-auto">
-      <Cabecera/>
+      {cabecera}
       <div className={caja}>
         <p className="text-purple-200 text-sm">2. Ordenar · descriptor {i + 1} de {nombres.length}</p>
-        <h3 className="text-3xl font-bold text-white mb-1">{a}</h3>
-        {def && <p className="text-purple-100 text-sm mb-2 italic">{def}</p>}
+        <h3 className="text-3xl font-bold text-white mb-1">{at.n}</h3>
+        {at.def && <p className="text-purple-100 text-sm mb-1 italic">{at.def}</p>}
         <p className="text-purple-100 text-sm mb-4">
-          Ordená las muestras de <b>menos</b> a <b>más</b> {a.toLowerCase()}: <b>1</b> = la que menos tiene, <b>{n}</b> = la que más.
-          Si dos muestras te parecen iguales, poneles <b>el mismo número</b> (empate).
+          Ordená las copas en tu mesa y después pasalo acá: arrastrá cada letra a la línea, de <b>{at.izq || 'menos'}</b> (izquierda)
+          a <b>{at.der || 'más'}</b> (derecha). Si dos te parecen iguales, <b>apilalas una encima de la otra</b>.
+          {' '}<span className="text-purple-300">También podés tocar una letra y después tocar dónde va.</span>
         </p>
-        <div className="overflow-x-auto">
-          <table className="mx-auto">
-            <thead><tr>
-              <th></th>
-              {Array.from({ length: n }, (_, k) => <th key={k} className="text-xs text-purple-200 font-semibold px-1 pb-1">{k === 0 ? '1 menos' : k === n - 1 ? `${n} más` : k + 1}</th>)}
-            </tr></thead>
-            <tbody>{muestras.map(m => (
-              <tr key={m.Orden}>
-                <td className="pr-3 py-1"><span className="bg-gradient-to-br from-yellow-400 to-orange-500 text-gray-900 font-bold text-lg px-3 py-1 rounded-lg">{m.CodigoProducto}</span></td>
-                {Array.from({ length: n }, (_, k) => (
-                  <td key={k} className="px-0.5 py-1">
-                    <button onClick={() => poner(a, m.Orden, k + 1)}
-                      className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg font-bold border-2 ${pos[m.Orden] === k + 1 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-transparent' : 'bg-slate-800/60 text-slate-300 border-slate-600 hover:border-pink-400'}`}>
-                      {k + 1}
-                    </button>
-                  </td>))}
-              </tr>))}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-5 bg-white rounded-xl p-3">
-          <p className="text-xs text-gray-500 mb-1">Así queda tu orden:</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-gray-500 font-semibold">− menos</span>
-            {lineaOrden(muestras, pos).map((g, j) => (
-              <span key={j} className={`px-2 py-1 rounded-lg font-bold ${g.length > 1 ? 'bg-amber-200 text-amber-900' : 'bg-purple-100 text-purple-900'}`}>{g.join(' = ')}</span>))}
-            <span className="text-gray-500 font-semibold">más +</span>
-          </div>
-          {todosIguales && <p className="text-xs text-amber-700 mt-2">Pusiste todas las muestras iguales: este descriptor no las diferencia. Si es así, podés quitarlo de tu lista.</p>}
-        </div>
+        <TableroOrden muestras={muestras} grupos={grupos} izq={at.izq} der={at.der}
+          setGrupos={g => { setAviso(''); upd(prev => ({ orden: { ...prev.orden, [at.n]: g } })); }} />
+        {todosIguales && <p className="text-xs text-amber-300 mt-3">Pusiste todas las copas iguales: este descriptor no las diferencia. Si es así, podés quitarlo de tu lista.</p>}
+        <p className="text-xs text-purple-300 mt-3">Si te cansás, hacé una pausa entre descriptores: tu avance queda guardado en este dispositivo.</p>
       </div>
       {aviso && <p className="mb-3 bg-red-500/90 text-white font-semibold p-3 rounded-xl text-center">{aviso}</p>}
       <div className="space-y-3">
         <button onClick={siguiente} className={btnP}>{i + 1 < nombres.length ? 'Siguiente descriptor →' : 'Revisar y enviar →'}</button>
         <div className="grid grid-cols-2 gap-3">
-          <button onClick={() => { setAviso(''); i > 0 ? upd({ i: i - 1 }) : upd({ paso: 'desc' }); }} className={btnS}>← Anterior</button>
-          <button onClick={() => upd({ paso: 'desc' })} className={btnS}>Editar descriptores</button>
+          <button onClick={() => { setAviso(''); i > 0 ? upd({ i: i - 1 }) : upd({ paso: 'desc' }); window.scrollTo(0, 0); }} className={btnS}>← Anterior</button>
+          <button onClick={() => upd({ paso: 'desc' })} className={btnS}>Ver / editar descriptores</button>
+        </div>
+        <div className="flex gap-2">
+          <input value={nuevo2} onChange={e => setNuevo2(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && agregar(nuevo2)) setNuevo2(''); }}
+            placeholder="¿Encontraste otra diferencia? Agregá un descriptor" className="flex-1 min-w-0 rounded-lg px-3 py-2 text-gray-900" />
+          <button onClick={() => { if (agregar(nuevo2)) setNuevo2(''); }} className="bg-white/15 hover:bg-white/25 text-white font-semibold px-4 rounded-lg border border-white/30">+ Agregar</button>
         </div>
       </div>
     </div></div>
@@ -789,6 +923,7 @@ function NuevoEstudio({ creado, cancelar }) {
   const [escala, setEscala] = useState(F.escala ?? 3);
   const [ordenAzar, setOrdenAzar] = useState(F.ordenAzar ?? false);
   const [sugTxt, setSugTxt] = useState(F.sugTxt ?? '');
+  const [dupTxt, setDupTxt] = useState('');
   useEffect(() => { LS.set('pf_form', { nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt, tecnica, escala, ordenAzar, sugTxt }); },
     [nombre, vinosTxt, porSesion, reps, nPan, parejo, semilla, atrTxt, tecnica, escala, ordenAzar, sugTxt]);
   const [prev, setPrev] = useState(null);
@@ -800,7 +935,11 @@ function NuevoEstudio({ creado, cancelar }) {
   const desc = useMemo(() => parsearDescriptores(atrTxt), [atrTxt]);
   const atributos = desc.claves;
   const esRata = tecnica === 'rata', esFlash = tecnica === 'flash';
-  const sugerencias = [...new Set(sugTxt.split(/\r?\n|;|\t/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, 200);
+  // ideas para Perfil Flash: una por línea; se aceptan títulos "# Modalidad" (como la lista común del cap. 7)
+  const sugerencias = sugTxt.split(/\r?\n/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 300);
+  const nIdeas = sugerencias.filter(x => !x.startsWith('#')).length;
+  const duplicados = [...new Set(lineas(dupTxt))];
+  const dupMalos = duplicados.filter(d => !vinos.includes(d));
   const porSesionEf = esFlash ? Math.max(1, vinos.length) : Number(porSesion);
   const dup = vinos.filter((v, i) => vinos.indexOf(v) !== i);
 
@@ -812,13 +951,16 @@ function NuevoEstudio({ creado, cancelar }) {
     if (vinos.some(v => v.includes('|'))) return setMsg({ t: 'error', m: 'Los nombres de vinos no pueden tener el carácter |' });
     if (!esFlash && !atributos.length) return setMsg({ t: 'error', m: 'Agregá al menos un descriptor.' });
     if (esFlash && vinos.length < 3) return setMsg({ t: 'error', m: 'El Perfil Flash necesita al menos 3 muestras para ordenar.' });
-    if (esFlash && vinos.length > 20) return setMsg({ t: 'error', m: 'En Perfil Flash todas las muestras se evalúan juntas: máximo 20.' });
+    if (esFlash && vinos.length + duplicados.length > 26) return setMsg({ t: 'error', m: 'En Perfil Flash las copas se codifican con letras: máximo 26 (A–Z), duplicados incluidos.' });
+    if (esFlash && dupMalos.length) return setMsg({ t: 'error', m: 'Estos duplicados no están en la lista de vinos: ' + dupMalos.join(', ') });
     if (!esFlash && desc.dup.length) return setMsg({ t: 'error', m: 'Hay descriptores repetidos en el mismo grupo: ' + desc.dup.join(', ') });
     if (!esFlash && desc.malos.length) return setMsg({ t: 'error', m: 'Descriptores con el carácter | o demasiado largos: ' + desc.malos.join(', ') });
     if (atributos.length > 300) return setMsg({ t: 'error', m: 'Máximo 300 descriptores por estudio.' });
     if (!esFlash && Number(porSesion) > vinos.length) return setMsg({ t: 'error', m: `No puede haber más vinos por sesión (${porSesion}) que vinos distintos (${vinos.length}): un vino no se repite dentro de una sesión.` });
     if (vinos.length * reps > 900) return setMsg({ t: 'error', m: 'Demasiadas muestras para códigos de 3 dígitos (máx. 900 vinos × repeticiones).' });
-    setPrev(generarDiseno({ vinos, porSesion: porSesionEf, reps: Number(reps), nPanelistas: Number(nPan), parejo: esFlash ? false : parejo, semilla: Number(semilla) }));
+    setPrev(esFlash
+      ? generarDisenoFlash({ vinos, reps: Number(reps), duplicados, nPanelistas: Number(nPan), semilla: Number(semilla) })
+      : generarDiseno({ vinos, porSesion: porSesionEf, reps: Number(reps), nPanelistas: Number(nPan), parejo, semilla: Number(semilla) }));
   };
 
   const guardar = async () => {
@@ -831,7 +973,7 @@ function NuevoEstudio({ creado, cancelar }) {
         sesiones: prev.sesiones.map(s => ({ Sesion: s.Sesion, NMuestras: s.NMuestras, Vinos: s.Vinos })),
         panelistas: Array.from({ length: Number(nPan) }, (_, i) => 'V' + (i + 1)),
         diseno: prev.diseno,
-        parametros: { vinos, reps: Number(reps), porSesion: porSesionEf, nPanelistas: Number(nPan), parejo, semilla: Number(semilla) },
+        parametros: { vinos, duplicados: esFlash ? duplicados : [], reps: Number(reps), porSesion: porSesionEf, nPanelistas: Number(nPan), parejo, semilla: Number(semilla) },
       });
       LS.set('pf_form', { atrTxt, porSesion, reps, nPan, parejo, tecnica, escala, ordenAzar, sugTxt });
       creado(id);
@@ -875,10 +1017,19 @@ function NuevoEstudio({ creado, cancelar }) {
             <Campo label="Panelistas"><input type="number" min="1" className={inp} value={nPan} onChange={e => setNPan(e.target.value)} /></Campo>
           </div>
           {esFlash && (
-            <p className="text-sm bg-amber-50 text-amber-900 rounded-lg p-3">
-              En Perfil Flash el panelista recibe <b>todas las muestras juntas</b> y las compara. Cada repetición es una sesión aparte
-              (lo habitual es 1). El cuadrado de Williams define el orden de las muestras en la bandeja de cada panelista.
-            </p>
+            <div className="text-sm bg-amber-50 text-amber-900 rounded-lg p-3 space-y-1">
+              <p>Cada panelista recibe <b>todas las copas juntas</b>, marcadas con <b>letras</b> (A, B, C…): son más fáciles de reportar
+                que los números de 3 cifras. Las letras se sortean entre los vinos y son <b>las mismas para todos</b>. No se usa Williams.</p>
+              <p>Cada repetición es una sesión con otro sorteo de letras (lo habitual es 1). Se recomiendan al menos 4–5 panelistas.</p>
+              {Number(nPan) < 4 && <p className="font-semibold text-red-700">Con menos de 4 panelistas el mapa de consenso es poco estable.</p>}
+            </div>
+          )}
+          {esFlash && (
+            <Campo label={`Duplicados (opcional) · ${duplicados.length}`}
+              ayuda="Vinos que se sirven dos veces en la misma sesión, con otra letra, para mirar la repetibilidad en el mapa. Pocos, y el panelista no debe saberlo. Uno por línea, con el mismo nombre que en la lista de vinos.">
+              <textarea className={inp + ' h-16 text-sm'} value={dupTxt} onChange={e => setDupTxt(e.target.value)} />
+              {dupMalos.length > 0 && <span className="block text-xs text-red-600 mt-1">No están en la lista de vinos: {dupMalos.join(', ')}</span>}
+            </Campo>
           )}
           {!esFlash && vinos.length > 0 && Number(reps) > 0 && Number(porSesion) > 0 && (
             <p className="text-sm bg-purple-50 text-purple-900 rounded-lg p-3">
@@ -891,13 +1042,15 @@ function NuevoEstudio({ creado, cancelar }) {
             <input type="checkbox" checked={parejo} onChange={e => setParejo(e.target.checked)} className="w-4 h-4" />
             Repartir parejo entre sesiones (ej. 24 muestras de a 7 → 6+6+6+6 en vez de 7+7+7+3)
           </label>}
-          <Campo label="Semilla" ayuda="Con la misma semilla y los mismos datos se obtiene exactamente el mismo diseño.">
+          <Campo label="Semilla" ayuda={esFlash ? 'Con la misma semilla y los mismos datos se obtiene el mismo sorteo de letras.' : 'Con la misma semilla y los mismos datos se obtiene exactamente el mismo diseño.'}>
             <input type="number" className={inp} value={semilla} onChange={e => setSemilla(e.target.value)} />
           </Campo>
           {esFlash
-            ? <Campo label={`Ideas de descriptores (opcional) · ${sugerencias.length}`}
-                ayuda="Los descriptores los crea cada panelista. Si querés, cargá una lista común de ideas (por ejemplo, de una sesión previa): el panelista la ve y puede tocar las que le sirvan. Una por línea.">
-                <textarea className={inp + ' h-32 text-sm'} value={sugTxt} onChange={e => setSugTxt(e.target.value)} placeholder={'Frutos rojos\nVainilla\nAstringencia'} />
+            ? <Campo label={`Lista de ayuda (opcional) · ${nIdeas} términos`}
+                ayuda={<>Los descriptores los crea cada panelista. Si querés, cargá una lista de ayuda (de la bibliografía, una rueda de aromas o una sesión previa):
+                  el panelista la puede desplegar y tocar los términos que le sirvan. Uno por línea; podés agruparlos por modalidad con <code># Aroma</code>, <code># Boca</code>…
+                  (se muestran en orden alfabético). Con consumidores, tené en cuenta que una lista puede sesgar las respuestas.</>}>
+                <textarea className={inp + ' h-32 text-sm font-mono'} value={sugTxt} onChange={e => setSugTxt(e.target.value)} placeholder={'# Aroma\nFrutos rojos\nVainilla\n# Boca\nAstringencia'} />
               </Campo>
             : <>
           <Campo label={`${esRata ? 'Descriptores' : 'Atributos'} (${atributos.length})`}
@@ -932,9 +1085,9 @@ function NuevoEstudio({ creado, cancelar }) {
                 <h2 className="text-lg font-bold text-gray-800 mb-1">Vista previa: {prev.sesiones.length} sesiones</h2>
                 <p className="text-sm text-gray-600 mb-3">
                   <b>{nombreTecnica(tecnica)}</b> · {esFlash ? 'descriptores propios de cada panelista' : `${atributos.length} ${esRata ? 'descriptores' : 'atributos'}`}{!esFlash && desc.hayGrupos ? ` en ${desc.estructura.filter(i => i.t === 'g1').length || desc.estructura.filter(i => i.t === 'g2').length} grupos` : ''} ·{' '}
-                  {prev.totalMuestras} muestras ({vinos.length} vinos × {reps} rep.) · {nPan} panelistas · {prev.diseno.length} evaluaciones en total
+                  {prev.totalMuestras} muestras ({vinos.length}{esFlash && duplicados.length ? ` + ${duplicados.length} duplicado${duplicados.length > 1 ? 's' : ''}` : ''} vinos × {reps} rep.) · {nPan} panelistas · {prev.diseno.length} evaluaciones en total
                 </p>
-                {!balanceado && (
+                {!esFlash && !balanceado && (
                   <p className="text-sm bg-amber-50 text-amber-800 p-3 rounded-lg mb-3">
                     Para que el diseño de Williams quede completamente balanceado, el número de panelistas debería ser múltiplo de {
                       [...new Set(prev.sesiones.map(s => s.filasWilliams))].join(' y ')}. Igual se puede usar.
@@ -943,12 +1096,14 @@ function NuevoEstudio({ creado, cancelar }) {
                 <div className="overflow-auto max-h-[420px] border rounded-lg">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-100 sticky top-0"><tr>
-                      <th className="p-2 text-left">Sesión</th><th className="p-2 text-left">N</th><th className="p-2 text-left">Vinos (repetición, código)</th>
+                      <th className="p-2 text-left">Sesión</th><th className="p-2 text-left">N</th><th className="p-2 text-left">{esFlash ? 'Copas (letra: vino)' : 'Vinos (repetición, código)'}</th>
                     </tr></thead>
                     <tbody>{prev.sesiones.map(s => (
                       <tr key={s.Sesion} className="border-t align-top">
                         <td className="p-2 font-bold">{s.Sesion}</td><td className="p-2">{s.NMuestras}</td>
-                        <td className="p-2">{s.muestras.map(m => <span key={m.vino} className="inline-block bg-gray-100 rounded px-2 py-0.5 mr-1 mb-1">{m.vino} <span className="text-gray-500">r{m.rep}</span> <b>{m.codigo}</b></span>)}</td>
+                        <td className="p-2">{s.muestras.map(m => esFlash
+                          ? <span key={m.vino} className="inline-block bg-amber-50 border border-amber-200 rounded px-2 py-0.5 mr-1 mb-1"><b className="text-amber-700">{m.codigo}</b>: {m.vino}</span>
+                          : <span key={m.vino} className="inline-block bg-gray-100 rounded px-2 py-0.5 mr-1 mb-1">{m.vino} <span className="text-gray-500">r{m.rep}</span> <b>{m.codigo}</b></span>)}</td>
                       </tr>))}
                     </tbody>
                   </table>
@@ -1049,6 +1204,23 @@ function Servicio({ est, priv }) {
         <button onClick={() => window.print()} className="bg-gray-800 text-white px-4 py-2 rounded-lg font-semibold">Imprimir</button>
       </div>
       <h2 className="text-xl font-bold mb-1">{est.nombre} — Sesión {sel} ({ses.NMuestras} muestras)</h2>
+      {est.tecnica === 'flash' ? (
+        <div>
+          <p className="text-sm text-gray-600 mb-3">Perfil Flash: todos los panelistas reciben <b>las mismas copas, juntas</b>, cada una marcada con su letra.
+            Servir la misma cantidad, a la misma temperatura, en copas individuales que el panelista pueda mover; dejar agua y, si hace falta, más vino para volver a probar.</p>
+          <table className="text-sm border mb-6">
+            <thead className="bg-gray-100"><tr><th className="p-2 border">Letra</th><th className="p-2 border">Vino</th></tr></thead>
+            <tbody>{Object.keys(clave).map(v => [clave[v].codigo, v]).sort((a, b) => a[0].localeCompare(b[0])).map(([c, v]) => (
+              <tr key={c}><td className="p-2 border text-center font-black text-2xl">{c}</td><td className="p-2 border">{v}</td></tr>))}
+            </tbody>
+          </table>
+          <h3 className="font-semibold mb-2">Etiquetas para las copas ({pans.length} juegos)</h3>
+          <div className="flex flex-wrap gap-2">{pans.flatMap(v => Object.values(clave).map(x => x.codigo).sort().map(c => (
+            <div key={v + c} className="w-16 h-16 border-2 border-gray-800 rounded-lg flex flex-col items-center justify-center">
+              <span className="font-black text-3xl leading-none">{c}</span><span className="text-[9px] text-gray-500">{v}</span>
+            </div>)))}</div>
+        </div>
+      ) : (<>
       <h3 className="font-semibold mt-4 mb-2">Orden de servicio (vino → código)</h3>
       <table className="text-sm border mb-6">
         <thead className="bg-gray-100"><tr><th className="p-2 border">Vino</th><th className="p-2 border">Repetición</th><th className="p-2 border">Código</th></tr></thead>
@@ -1066,6 +1238,7 @@ function Servicio({ est, priv }) {
           </tr>))}
         </tbody>
       </table>
+      </>)}
     </div>
   );
 }
@@ -1350,9 +1523,18 @@ function AnalisisFlash({ eid, est, priv }) {
                   <button onClick={bajarSVG} className="underline text-purple-700">Descargar gráfico (SVG)</button>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  Cada panelista es un grupo con sus propios descriptores (rangos, empates promediados). Igual que <code>FactoMineR::MFA(..., type = rep("s", {res.afm.grupos.length}))</code>.
-                  Para GPA, descargá la matriz en Resultados.
+                  Cada panelista es un grupo con sus propios descriptores (rangos, empates promediados). Igual que <code>FactoMineR::MFA(..., type = rep("s", {res.afm.grupos.length}))</code>;
+                  según Delarue, GPA y MFA dan resultados muy parecidos (para GPA, descargá la matriz en Resultados).
                 </p>
+                <p className="text-xs text-amber-700 bg-amber-50 rounded p-2 mt-2">
+                  El resultado principal es la <b>posición de los vinos</b>. Interpretá las flechas con cuidado: dos panelistas pueden usar la misma palabra
+                  para cosas distintas, o palabras distintas para lo mismo.
+                </p>
+                {res.productos.some(p => / \(dup\)$/.test(p)) && (
+                  <p className="text-xs text-indigo-800 bg-indigo-50 rounded p-2 mt-2">
+                    <b>Duplicados:</b> si cada “(dup)” queda cerca de su vino, el panel fue repetible. Si queda lejos, puede ser falta de repetibilidad
+                    o que los vinos del set son muy parecidos entre sí (el perfil flash es comparativo).
+                  </p>)}
               </>
             : <p className="text-gray-500 border-2 border-dashed rounded-xl p-8 text-center">Se necesitan al menos 3 vinos y algún panelista que haya terminado la sesión.</p>}
         </div>
@@ -1365,19 +1547,29 @@ function AnalisisFlash({ eid, est, priv }) {
             <p className="text-xs text-gray-500 mt-1">El número es cuántos panelistas usaron ese término.</p>
           </div>
           <div>
-            <h3 className="font-bold text-gray-800 mb-2">Descriptores de cada panelista</h3>
+            <h3 className="font-bold text-gray-800 mb-2">Descriptores de cada panelista y acuerdo con el consenso</h3>
             <div className="overflow-auto max-h-[420px] border rounded-lg">
               <table className="text-sm w-full">
-                <tbody>{res.grupos.map(g => (
+                <thead className="bg-gray-100 sticky top-0 text-xs"><tr><th className="p-2 text-left">Panelista</th><th className="p-2 text-left">RV</th><th className="p-2 text-left">Descriptores</th></tr></thead>
+                <tbody>{res.grupos.map(g => {
+                  const rv = res.afm && (res.afm.grupos.find(x => x.nombre === g.v) || {}).rv;
+                  return (
                   <tr key={g.v} className="border-t align-top">
                     <td className="p-2 font-bold whitespace-nowrap">{g.v}</td>
+                    <td className="p-2 whitespace-nowrap">{rv == null ? '—' : (
+                      <div className="flex items-center gap-1" title="Coeficiente RV con la configuración de consenso (0 a 1)">
+                        <div className="w-14 h-2 bg-gray-200 rounded"><div className={`h-2 rounded ${rv >= 0.7 ? 'bg-emerald-500' : rv >= 0.5 ? 'bg-amber-400' : 'bg-red-400'}`} style={{ width: `${Math.max(0, rv) * 100}%` }}/></div>
+                        <span className="text-xs">{fmt(rv)}</span>
+                      </div>)}</td>
                     <td className="p-2">{g.cols.map(c => (
                       <span key={c.a} title={g.def[c.a] || ''} className={`inline-block rounded px-2 py-0.5 mr-1 mb-1 ${g.def[c.a] ? 'bg-indigo-100 text-indigo-900 underline decoration-dotted' : 'bg-gray-100'}`}>{c.a}</span>))}</td>
-                  </tr>))}
+                  </tr>); })}
                 </tbody>
               </table>
             </div>
-            <p className="text-xs text-gray-500 mt-1">Pasá el mouse sobre los subrayados para ver cómo los evalúa el panelista.</p>
+            <p className="text-xs text-gray-500 mt-1">RV: parecido entre el mapa de cada panelista y el de consenso (1 = igual). Un valor bajo marca a alguien
+              que vio las diferencias de otra manera (no necesariamente “mal”: en perfil flash las percepciones pueden diferir).
+              Pasá el mouse sobre los subrayados para ver cómo evalúa cada descriptor.</p>
           </div>
         </div>
       </div>
@@ -1398,16 +1590,24 @@ function ResultadosFlash({ eid, est, priv }) {
   const colsM = ['Producto', ...grupos.flatMap(g => g.cols.map(c => c.col))];
   const matriz = d.productos.map((p, i) => { const o = { Producto: p }; grupos.forEach(g => g.cols.forEach(c => { o[c.col] = c.x[i] ?? ''; })); return o; });
   const tam = grupos.map(g => g.cols.length);
+  // control del cap. 7: la suma de rangos de cada descriptor debe ser p(p+1)/2 por sesión
+  const porSes = {}; resp.forEach(r => { Object.entries(r.valores || {}).forEach(([a, v]) => { const k = `${r.Valuador}|${r.Sesion}|${a}`; (porSes[k] = porSes[k] || []).push(Number(v)); }); });
+  const malSuma = Object.entries(porSes).filter(([, vs]) => Math.abs(vs.reduce((s, x) => s + x, 0) - vs.length * (vs.length + 1) / 2) > 1e-6).map(([k]) => k.replace(/\|/g, ' · '));
   const codigoR = `library(FactoMineR)
 d <- read.csv("${base}_matriz.csv", row.names = 1, check.names = FALSE)
 grupos <- c(${tam.join(', ')})
 nombres <- c(${grupos.map(g => `"${g.v}"`).join(', ')})
 afm <- MFA(d, group = grupos, type = rep("s", length(grupos)), name.group = nombres)
-gpa <- GPA(d, group = grupos, name.group = nombres)`;
+gpa <- GPA(d, group = grupos, name.group = nombres)
+afm$group$RV     # acuerdo de cada panelista con el consenso
+gpa$consensus    # configuración de consenso (GPA)`;
   return (
     <div>
       <Mensaje msg={msg}/>
       <p className="text-gray-700 mb-4"><b>{new Set(resp.map(r => `${r.Valuador}_${r.Sesion}`)).size}</b> sesiones de panelista enviadas de <b>{est.panelistas.length * est.sesiones.length}</b> · {d.largo.length} rangos.</p>
+      {d.largo.length > 0 && (malSuma.length
+        ? <p className="text-sm bg-red-50 text-red-700 p-3 rounded-lg mb-3">Revisar: la suma de rangos no da p(p+1)/2 en {malSuma.join(', ')}.</p>
+        : <p className="text-sm text-emerald-700 mb-3">✓ Control: en todos los descriptores la suma de rangos es p(p+1)/2.</p>)}
       <div className="flex flex-wrap gap-3 mb-3">
         <button onClick={() => descargar(`${base}_matriz.csv`, aCSV(matriz, colsM, ',', false))} disabled={!grupos.length}
           className={btn + ' bg-emerald-600 hover:bg-emerald-700 text-white'}>Matriz para MFA / GPA (R)</button>

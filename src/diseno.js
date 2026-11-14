@@ -84,3 +84,28 @@ export function generarDiseno({ vinos, porSesion, reps, nPanelistas, parejo, sem
   return { sesiones, diseno, totalMuestras: vinos.length * reps };
 }
 
+
+// Perfil Flash (Delarue, cap. 7): todas las muestras juntas, codificadas con LETRAS (A, B, C…) para evitar
+// errores al reportar. Las letras se asignan al azar a los vinos y son las mismas para todos los panelistas
+// (cada copa lleva su letra). Sin Williams: la evaluación es simultánea y comparativa.
+// Cada repetición es una sesión con un nuevo sorteo de letras. Duplicados opcionales: el mismo vino servido
+// dos veces en la sesión con otra letra (para mirar repetibilidad; el panelista no debe saberlo).
+export const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+export function generarDisenoFlash({ vinos, reps, duplicados = [], nPanelistas, semilla }) {
+  const r = rng(semilla);
+  const panelistas = Array.from({ length: nPanelistas }, (_, i) => 'V' + (i + 1));
+  const sesiones = [], diseno = [];
+  for (let k = 1; k <= reps; k++) {
+    const sesion = 'S' + k;
+    const items = [...vinos.map(v => ({ vino: v, rep: k })), ...duplicados.map(v => ({ vino: `${v} (dup)`, rep: k }))];
+    const muestras = barajar(items, r).map((m, i) => ({ ...m, codigo: LETRAS[i] }));
+    panelistas.forEach(v => muestras.forEach((m, i) =>
+      diseno.push({ Sesion: sesion, Valuador: v, Orden: i + 1, NombreProducto: m.vino, Rep: m.rep, CodigoProducto: m.codigo })));
+    sesiones.push({
+      Sesion: sesion, NMuestras: muestras.length,
+      Vinos: muestras.map(m => `${m.codigo}: ${m.vino}`).join(' | '),
+      muestras, filasWilliams: 1,
+    });
+  }
+  return { sesiones, diseno, totalMuestras: (vinos.length + duplicados.length) * reps };
+}
