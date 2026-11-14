@@ -1,7 +1,7 @@
 # Panel Sensorial (Firebase)
 
 App web para análisis sensorial con **varios estudios a la vez**, sesiones, repeticiones y diseño de Williams.
-Técnicas: **Análisis Descriptivo Cuantitativo** (escala 0–10), **RATA** (Rate-All-That-Apply) y **Perfil Flash**.
+Técnicas: **Análisis Descriptivo Cuantitativo** (escala 0–10), **RATA** (Rate-All-That-Apply), **Perfil Flash** y **Napping** (mapeo proyectivo).
 Los datos se guardan en **Firebase (Firestore)**; la app se publica en GitHub Pages.
 
 - **Panelistas:** https://anibalacatania.github.io/panel/
@@ -20,6 +20,14 @@ Los datos se guardan en **Firebase (Firestore)**; la app se publica en GitHub Pa
    - Opción: orden de los descriptores al azar por panelista (dentro de cada grupo) para reducir el sesgo por posición.
    - **RATA:** el panelista marca los descriptores presentes y elige la intensidad (bajo/medio/alto, o escala de 5).
      En resultados: 0 = no marcado, 1–3 (o 1–5) = intensidad. No se puede enviar un descriptor marcado sin intensidad.
+   - **Napping / mapeo proyectivo** (según Dehlholm, cap. 9 del mismo libro): todas las muestras en la sesión, con códigos
+     de 3 cifras y orden de cata balanceado (Williams); duplicados ocultos opcionales. El panelista prueba de a una y
+     **arrastra** cada muestra a una hoja (rectangular 60 × 40 cm, cuadrada 60 × 60 o redonda): cerca = parecidas.
+     Napping global (criterio propio) o parcial (una hoja por foco: aspecto, aroma, boca…). Palabras por muestra
+     (Ultra Flash Profile) opcionales u obligatorias, con lista de ayuda. Coordenadas en cm desde la esquina inferior izquierda.
+     Análisis en vivo: MFA con coordenadas sin estandarizar (`type = "c"`), palabras como suplementarias, RV de cada
+     panelista, índice de desempeño con duplicados (Hopfer y Heymann) y mapas individuales. Resultados: matriz para MFA
+     (X, Y por panelista + tabla de palabras, como la fig. 9.3), formato largo, palabras para `textual` y código R.
    - **Perfil Flash** (según Delarue, cap. 7 de *Novel Techniques in Sensory Characterization and Consumer Profiling*):
      todas las copas juntas, marcadas con **letras** (A, B, C…) sorteadas entre los vinos e iguales para todos los panelistas;
      **sin Williams**. Cada repetición es una sesión con un nuevo sorteo. Duplicados ocultos opcionales para mirar repetibilidad.

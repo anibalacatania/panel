@@ -5,6 +5,7 @@ export const TECNICAS = {
   descriptiva: { nombre: 'Análisis Descriptivo Cuantitativo', corto: 'ADC', color: 'bg-indigo-100 text-indigo-700' },
   rata: { nombre: 'RATA (Rate-All-That-Apply)', corto: 'RATA', color: 'bg-pink-100 text-pink-700' },
   flash: { nombre: 'Perfil Flash', corto: 'Flash', color: 'bg-amber-100 text-amber-800' },
+  napping: { nombre: 'Napping (mapeo proyectivo)', corto: 'Napping', color: 'bg-emerald-100 text-emerald-800' },
 };
 export const nombreTecnica = t => (TECNICAS[t] || TECNICAS.descriptiva).nombre;
 
@@ -94,3 +95,12 @@ export function rangosDesdePosiciones(pos) {
   }
   return out;
 }
+
+// Napping (Dehlholm, cap. 9): hojas posibles, en cm, con origen en la esquina inferior izquierda
+export const HOJAS = {
+  rect: { nombre: 'Rectangular 60 × 40 cm (Napping)', ancho: 60, alto: 40, redonda: false },
+  cuad: { nombre: 'Cuadrada 60 × 60 cm (mapeo proyectivo)', ancho: 60, alto: 60, redonda: false },
+  redonda: { nombre: 'Redonda, 40 cm de diámetro', ancho: 40, alto: 40, redonda: true },
+};
+// claves de las coordenadas en cada respuesta: "<tarea>_X" / "<tarea>_Y"
+export const claveX = t => `${t}_X`, claveY = t => `${t}_Y`;

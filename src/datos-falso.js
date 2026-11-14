@@ -21,7 +21,7 @@ export async function iniciar() { await dormir(5); }
 
 const limpiar = (id, d) => ({ id, nombre: d.nombre, tecnica: d.tecnica || 'descriptiva', activo: !!d.activo,
   atributos: d.atributos || [], sesiones: d.sesiones || [], panelistas: d.panelistas || [], creado: d.creado || null,
-  estructura: d.estructura || null, escala: d.escala || 3, ordenAzar: !!d.ordenAzar, sugerencias: d.sugerencias || [] });
+  estructura: d.estructura || null, escala: d.escala || 3, ordenAzar: !!d.ordenAzar, sugerencias: d.sugerencias || [], napping: d.napping || null });
 
 export async function estudiosActivos() {
   await dormir(st.latencia);
@@ -81,7 +81,7 @@ let n = 0;
 export async function crearEstudio(est) {
   if (!esAdmin()) denegar();
   const id = 'est' + (++n) + '_' + Date.now().toString(36);
-  s(`estudios/${id}`, { nombre: est.nombre, tecnica: est.tecnica || 'descriptiva', activo: true, atributos: est.atributos, estructura: est.estructura || null, escala: est.escala || 3, ordenAzar: !!est.ordenAzar, sugerencias: est.sugerencias || [],
+  s(`estudios/${id}`, { nombre: est.nombre, tecnica: est.tecnica || 'descriptiva', activo: true, atributos: est.atributos, estructura: est.estructura || null, escala: est.escala || 3, ordenAzar: !!est.ordenAzar, sugerencias: est.sugerencias || [], napping: est.napping || null,
     sesiones: est.sesiones.map(x => ({ Sesion: x.Sesion, NMuestras: x.NMuestras })), panelistas: est.panelistas, creado: new Date().toISOString() });
   s(`estudios/${id}/publico/diseno`, { filas: est.diseno.map(d => `${d.Sesion}|${d.Valuador}|${d.Orden}|${d.CodigoProducto}`) });
   s(`estudios/${id}/privado/diseno`, { filas: est.diseno.map(d => `${d.Sesion}|${d.Valuador}|${d.Orden}|${d.CodigoProducto}|${d.NombreProducto}|${d.Rep}`),
@@ -119,7 +119,7 @@ export function guardarFlash(eid, { Sesion, Valuador, muestras, atributos, def }
     if (!est || !est.activo) denegar();
     for (const m of muestras) {
       const d = { Sesion, Valuador, Orden: m.Orden, CodigoProducto: m.CodigoProducto, valores: m.valores, ts: new Date().toISOString() };
-      if (def && Object.keys(def).length) d.def = def;
+      const dd = m.def || def; if (dd && Object.keys(dd).length) d.def = dd;
       s(`estudios/${eid}/respuestas/${Valuador}_${Sesion}_${m.Orden}`, d);
     }
     const p = g(`estudios/${eid}/progreso/${Valuador}`) || {};

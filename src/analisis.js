@@ -119,23 +119,26 @@ export function pca(vinos, atributos, medias) {
 // Análisis Factorial Múltiple (como FactoMineR::MFA con todos los grupos type = "s"):
 // bloques = [{ nombre, cols: [{ a, x: [valor por fila] }] }]  (filas = productos)
 // Cada variable se estandariza; cada bloque se pondera por 1/λ1 del bloque; ACP global sin re-estandarizar.
-export function afm(filasNombres, bloques) {
+export function afm(filasNombres, bloques, { escalar = true } = {}) {
   const n = filasNombres.length;
   if (n < 3) return null;
-  const est = x => { const m = x.reduce((s, y) => s + y, 0) / n; const sd = Math.sqrt(x.reduce((s, y) => s + (y - m) ** 2, 0) / n); return sd > 1e-9 ? x.map(y => (y - m) / sd) : null; };
+  // z = estandarizada (para correlaciones); v = la que entra al análisis (estandarizada, o solo centrada si escalar = false,
+  // como type = "c" de FactoMineR para las coordenadas de Napping)
+  const est = x => { const m = x.reduce((s, y) => s + y, 0) / n; const sd = Math.sqrt(x.reduce((s, y) => s + (y - m) ** 2, 0) / n);
+    return sd > 1e-9 ? { z: x.map(y => (y - m) / sd), v: escalar ? x.map(y => (y - m) / sd) : x.map(y => y - m) } : null; };
   const cols = [], grupos = [];
   for (const b of bloques) {
-    const zs = b.cols.map(c => ({ a: c.a, z: est(c.x) })).filter(c => c.z);
+    const zs = b.cols.map(c => ({ a: c.a, ...(est(c.x) || {}) })).filter(c => c.z);
     if (!zs.length) continue;
-    const G = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => zs.reduce((s, c) => s + c.z[i] * c.z[j], 0) / n));
+    const G = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => zs.reduce((s, c) => s + c.v[i] * c.v[j], 0) / n));
     const l1 = jacobi(G).valores[0];
     if (!(l1 > 1e-10)) continue;
     const w = 1 / Math.sqrt(l1);
-    zs.forEach(c => cols.push({ a: c.a, grupo: b.nombre, z: c.z, w }));
+    zs.forEach(c => cols.push({ a: c.a, grupo: b.nombre, z: c.z, v: c.v, w }));
     grupos.push({ nombre: b.nombre, n: zs.length, W: G });
   }
   if (grupos.length < 1 || cols.length < 2) return null;
-  const G = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => cols.reduce((s, c) => s + c.w * c.w * c.z[i] * c.z[j], 0) / n));
+  const G = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => cols.reduce((s, c) => s + c.w * c.w * c.v[i] * c.v[j], 0) / n));
   const { valores, vectores } = jacobi(G);
   const total = valores.reduce((s, v) => s + Math.max(0, v), 0);
   if (!(valores[1] > 1e-10)) return null;
