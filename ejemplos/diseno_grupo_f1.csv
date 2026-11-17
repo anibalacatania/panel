@@ -1,0 +1,257 @@
+Valuador,Muestra,NombreProducto,CodigoProducto
+V1,2,Terrazas_8 2,420
+V1,3,Durigutti 2,266
+V1,7,Clos de Chacras 2,510
+V1,5,Doña Paula B2,360
+V1,8,Otero Ramos 2,827
+V1,4,Weinert B,489
+V1,1,Casarena 2,528
+V1,6,Altieri 2,173
+V2,3,Durigutti 2,266
+V2,5,Doña Paula B2,360
+V2,2,Terrazas_8 2,420
+V2,4,Weinert B,489
+V2,7,Clos de Chacras 2,510
+V2,6,Altieri 2,173
+V2,8,Otero Ramos 2,827
+V2,1,Casarena 2,528
+V3,5,Doña Paula B2,360
+V3,4,Weinert B,489
+V3,3,Durigutti 2,266
+V3,6,Altieri 2,173
+V3,2,Terrazas_8 2,420
+V3,1,Casarena 2,528
+V3,7,Clos de Chacras 2,510
+V3,8,Otero Ramos 2,827
+V4,4,Weinert B,489
+V4,6,Altieri 2,173
+V4,5,Doña Paula B2,360
+V4,1,Casarena 2,528
+V4,3,Durigutti 2,266
+V4,8,Otero Ramos 2,827
+V4,2,Terrazas_8 2,420
+V4,7,Clos de Chacras 2,510
+V5,6,Altieri 2,173
+V5,1,Casarena 2,528
+V5,4,Weinert B,489
+V5,8,Otero Ramos 2,827
+V5,5,Doña Paula B2,360
+V5,7,Clos de Chacras 2,510
+V5,3,Durigutti 2,266
+V5,2,Terrazas_8 2,420
+V6,1,Casarena 2,528
+V6,8,Otero Ramos 2,827
+V6,6,Altieri 2,173
+V6,7,Clos de Chacras 2,510
+V6,4,Weinert B,489
+V6,2,Terrazas_8 2,420
+V6,5,Doña Paula B2,360
+V6,3,Durigutti 2,266
+V7,8,Otero Ramos 2,827
+V7,7,Clos de Chacras 2,510
+V7,1,Casarena 2,528
+V7,2,Terrazas_8 2,420
+V7,6,Altieri 2,173
+V7,3,Durigutti 2,266
+V7,4,Weinert B,489
+V7,5,Doña Paula B2,360
+V8,7,Clos de Chacras 2,510
+V8,2,Terrazas_8 2,420
+V8,8,Otero Ramos 2,827
+V8,3,Durigutti 2,266
+V8,1,Casarena 2,528
+V8,5,Doña Paula B2,360
+V8,6,Altieri 2,173
+V8,4,Weinert B,489
+V9,4,Weinert B,489
+V9,1,Casarena 2,528
+V9,5,Doña Paula B2,360
+V9,2,Terrazas_8 2,420
+V9,7,Clos de Chacras 2,510
+V9,8,Otero Ramos 2,827
+V9,3,Durigutti 2,266
+V9,6,Altieri 2,173
+V10,1,Casarena 2,528
+V10,2,Terrazas_8 2,420
+V10,4,Weinert B,489
+V10,8,Otero Ramos 2,827
+V10,5,Doña Paula B2,360
+V10,6,Altieri 2,173
+V10,7,Clos de Chacras 2,510
+V10,3,Durigutti 2,266
+V11,2,Terrazas_8 2,420
+V11,8,Otero Ramos 2,827
+V11,1,Casarena 2,528
+V11,6,Altieri 2,173
+V11,4,Weinert B,489
+V11,3,Durigutti 2,266
+V11,5,Doña Paula B2,360
+V11,7,Clos de Chacras 2,510
+V12,8,Otero Ramos 2,827
+V12,6,Altieri 2,173
+V12,2,Terrazas_8 2,420
+V12,3,Durigutti 2,266
+V12,1,Casarena 2,528
+V12,7,Clos de Chacras 2,510
+V12,4,Weinert B,489
+V12,5,Doña Paula B2,360
+V13,6,Altieri 2,173
+V13,3,Durigutti 2,266
+V13,8,Otero Ramos 2,827
+V13,7,Clos de Chacras 2,510
+V13,2,Terrazas_8 2,420
+V13,5,Doña Paula B2,360
+V13,1,Casarena 2,528
+V13,4,Weinert B,489
+V14,3,Durigutti 2,266
+V14,7,Clos de Chacras 2,510
+V14,6,Altieri 2,173
+V14,5,Doña Paula B2,360
+V14,8,Otero Ramos 2,827
+V14,4,Weinert B,489
+V14,2,Terrazas_8 2,420
+V14,1,Casarena 2,528
+V15,7,Clos de Chacras 2,510
+V15,5,Doña Paula B2,360
+V15,3,Durigutti 2,266
+V15,4,Weinert B,489
+V15,6,Altieri 2,173
+V15,1,Casarena 2,528
+V15,8,Otero Ramos 2,827
+V15,2,Terrazas_8 2,420
+V16,5,Doña Paula B2,360
+V16,4,Weinert B,489
+V16,7,Clos de Chacras 2,510
+V16,1,Casarena 2,528
+V16,3,Durigutti 2,266
+V16,2,Terrazas_8 2,420
+V16,6,Altieri 2,173
+V16,8,Otero Ramos 2,827
+V17,6,Altieri 2,173
+V17,8,Otero Ramos 2,827
+V17,7,Clos de Chacras 2,510
+V17,1,Casarena 2,528
+V17,2,Terrazas_8 2,420
+V17,5,Doña Paula B2,360
+V17,3,Durigutti 2,266
+V17,4,Weinert B,489
+V18,8,Otero Ramos 2,827
+V18,1,Casarena 2,528
+V18,6,Altieri 2,173
+V18,5,Doña Paula B2,360
+V18,7,Clos de Chacras 2,510
+V18,4,Weinert B,489
+V18,2,Terrazas_8 2,420
+V18,3,Durigutti 2,266
+V19,1,Casarena 2,528
+V19,5,Doña Paula B2,360
+V19,8,Otero Ramos 2,827
+V19,4,Weinert B,489
+V19,6,Altieri 2,173
+V19,3,Durigutti 2,266
+V19,7,Clos de Chacras 2,510
+V19,2,Terrazas_8 2,420
+V20,5,Doña Paula B2,360
+V20,4,Weinert B,489
+V20,1,Casarena 2,528
+V20,3,Durigutti 2,266
+V20,8,Otero Ramos 2,827
+V20,2,Terrazas_8 2,420
+V20,6,Altieri 2,173
+V20,7,Clos de Chacras 2,510
+V21,4,Weinert B,489
+V21,3,Durigutti 2,266
+V21,5,Doña Paula B2,360
+V21,2,Terrazas_8 2,420
+V21,1,Casarena 2,528
+V21,7,Clos de Chacras 2,510
+V21,8,Otero Ramos 2,827
+V21,6,Altieri 2,173
+V22,3,Durigutti 2,266
+V22,2,Terrazas_8 2,420
+V22,4,Weinert B,489
+V22,7,Clos de Chacras 2,510
+V22,5,Doña Paula B2,360
+V22,6,Altieri 2,173
+V22,1,Casarena 2,528
+V22,8,Otero Ramos 2,827
+V23,2,Terrazas_8 2,420
+V23,7,Clos de Chacras 2,510
+V23,3,Durigutti 2,266
+V23,6,Altieri 2,173
+V23,4,Weinert B,489
+V23,8,Otero Ramos 2,827
+V23,5,Doña Paula B2,360
+V23,1,Casarena 2,528
+V24,7,Clos de Chacras 2,510
+V24,6,Altieri 2,173
+V24,2,Terrazas_8 2,420
+V24,8,Otero Ramos 2,827
+V24,3,Durigutti 2,266
+V24,1,Casarena 2,528
+V24,4,Weinert B,489
+V24,5,Doña Paula B2,360
+V25,4,Weinert B,489
+V25,1,Casarena 2,528
+V25,7,Clos de Chacras 2,510
+V25,2,Terrazas_8 2,420
+V25,8,Otero Ramos 2,827
+V25,5,Doña Paula B2,360
+V25,6,Altieri 2,173
+V25,3,Durigutti 2,266
+V26,1,Casarena 2,528
+V26,2,Terrazas_8 2,420
+V26,4,Weinert B,489
+V26,5,Doña Paula B2,360
+V26,7,Clos de Chacras 2,510
+V26,3,Durigutti 2,266
+V26,8,Otero Ramos 2,827
+V26,6,Altieri 2,173
+V27,2,Terrazas_8 2,420
+V27,5,Doña Paula B2,360
+V27,1,Casarena 2,528
+V27,3,Durigutti 2,266
+V27,4,Weinert B,489
+V27,6,Altieri 2,173
+V27,7,Clos de Chacras 2,510
+V27,8,Otero Ramos 2,827
+V28,5,Doña Paula B2,360
+V28,3,Durigutti 2,266
+V28,2,Terrazas_8 2,420
+V28,6,Altieri 2,173
+V28,1,Casarena 2,528
+V28,8,Otero Ramos 2,827
+V28,4,Weinert B,489
+V28,7,Clos de Chacras 2,510
+V29,3,Durigutti 2,266
+V29,6,Altieri 2,173
+V29,5,Doña Paula B2,360
+V29,8,Otero Ramos 2,827
+V29,2,Terrazas_8 2,420
+V29,7,Clos de Chacras 2,510
+V29,1,Casarena 2,528
+V29,4,Weinert B,489
+V30,6,Altieri 2,173
+V30,8,Otero Ramos 2,827
+V30,3,Durigutti 2,266
+V30,7,Clos de Chacras 2,510
+V30,5,Doña Paula B2,360
+V30,4,Weinert B,489
+V30,2,Terrazas_8 2,420
+V30,1,Casarena 2,528
+V31,8,Otero Ramos 2,827
+V31,7,Clos de Chacras 2,510
+V31,6,Altieri 2,173
+V31,4,Weinert B,489
+V31,3,Durigutti 2,266
+V31,1,Casarena 2,528
+V31,5,Doña Paula B2,360
+V31,2,Terrazas_8 2,420
+V32,7,Clos de Chacras 2,510
+V32,4,Weinert B,489
+V32,8,Otero Ramos 2,827
+V32,1,Casarena 2,528
+V32,6,Altieri 2,173
+V32,2,Terrazas_8 2,420
+V32,3,Durigutti 2,266
+V32,5,Doña Paula B2,360

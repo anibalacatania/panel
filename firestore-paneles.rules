@@ -1,0 +1,57 @@
+// Bloque para agregar a las reglas de Firestore del proyecto panel-sensorial (consola → Firestore → Reglas),
+// justo antes de las dos llaves de cierre del final. Usa las funciones esAdmin() y esSuper() de LibreSense.
+
+    // ================================================================
+    // ---- paneles (app "panel": análisis descriptivo cuantitativo con la vista de LibreSense-R)
+    // Mismos administradores que LibreSense. Un administrador ve y maneja sus paneles (campo "dueno");
+    // el administrador total, todos. Los panelistas (sin cuenta) leen el panel y su diseño público
+    // (sin nombres de vinos si se eligió un código) y escriben respuestas solo si el panel está abierto.
+    function puedeVerPanel(p) {
+      return esSuper() || (esAdmin()
+        && get(/databases/$(database)/documents/paneles/$(p)).data.get('dueno', '') == request.auth.token.email);
+    }
+    function puedeEscribirPanel(p) {
+      return esSuper() || (esAdmin()
+        && getAfter(/databases/$(database)/documents/paneles/$(p)).data.get('dueno', '') == request.auth.token.email);
+    }
+    function panelActivo(p) {
+      return get(/databases/$(database)/documents/paneles/$(p)).data.activo == true;
+    }
+    function respuestaPanelValida(r) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['Valuador', 'Orden', 'Etiqueta', 'valores', 'ts', 'tsCliente'])
+        && d.keys().hasAll(['Valuador', 'Orden', 'Etiqueta', 'valores', 'ts'])
+        && d.Valuador is string && d.Valuador.size() > 0 && d.Valuador.size() <= 40
+        && d.Orden is int && d.Orden >= 1 && d.Orden <= 500
+        && d.Etiqueta is string && d.Etiqueta.size() <= 100
+        && d.valores is map && d.valores.size() <= 100
+        && d.ts == request.time
+        && r == d.Valuador + '_' + string(d.Orden);
+    }
+    match /paneles/{p} {
+      allow read: if true;
+      allow create: if esAdmin() && request.resource.data.get('dueno', '') == request.auth.token.email;
+      allow update: if puedeVerPanel(p) && request.resource.data.get('dueno', '') == resource.data.get('dueno', '');
+      allow delete: if puedeVerPanel(p);
+
+      match /publico/{d} {
+        allow read: if true;
+        allow write: if puedeEscribirPanel(p);
+      }
+      match /privado/{d} {
+        allow read: if puedeVerPanel(p);
+        allow write: if puedeEscribirPanel(p);
+      }
+      match /respuestas/{r} {
+        allow read: if puedeVerPanel(p);
+        allow delete: if puedeVerPanel(p);
+        allow create, update: if panelActivo(p) && respuestaPanelValida(r);
+      }
+      match /progreso/{v} {
+        allow read: if true;
+        allow delete: if puedeVerPanel(p);
+        allow create, update: if panelActivo(p) && v.size() <= 40
+          && request.resource.data.keys().hasOnly(['hechos']) && request.resource.data.hechos is list
+          && request.resource.data.hechos.size() <= 500;
+      }
+    }

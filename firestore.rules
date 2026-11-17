@@ -1,0 +1,163 @@
+rules_version = '2';
+
+// Reglas de seguridad de LibreSense (Firestore): app LibreSense (estudios) + app panel (paneles).
+// Este archivo reemplaza al de LibreSense en la consola de Firebase (incluye las dos apps).
+// - Panelistas (sin cuenta): leen estudios activos y su diseño público (sin nombres de vinos),
+//   y escriben sus respuestas y su progreso SOLO si el estudio está activo y con formato válido.
+// - Administrador total (rol "super", o sin rol: el primero): todos los estudios y la lista de administradores.
+// - Administradores (rol "admin"): crean estudios y solo pueden ver y modificar los suyos (campo "dueno").
+//   El administrador total puede además compartir un estudio con administradores puntuales (campo "compartido"):
+//   esos lo pueden ver (diseño, respuestas, análisis) pero no modificar ni borrar.
+// - El primer administrador se registra solo, una única vez (meta/setup), como administrador total.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null && request.auth.token.email != null
+        && request.auth.token.email_verified == true;
+    }
+    function esAdmin() {
+      return autenticado()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
+    }
+    function esSuper() {
+      return esAdmin()
+        && get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.get('rol', 'super') == 'super';
+    }
+    // dueño del estudio: como está ahora (para leer) y como queda después de la escritura (para crear/modificar en lote)
+    function puedeVer(e) {
+      return esSuper() || (esAdmin()
+        && get(/databases/$(database)/documents/estudios/$(e)).data.get('dueno', '') == request.auth.token.email);
+    }
+    function compartidoCon(e) {
+      return esAdmin()
+        && request.auth.token.email in get(/databases/$(database)/documents/estudios/$(e)).data.get('compartido', []);
+    }
+    function puedeLeer(e) { return puedeVer(e) || compartidoCon(e); }
+    function puedeEscribir(e) {
+      return esSuper() || (esAdmin()
+        && getAfter(/databases/$(database)/documents/estudios/$(e)).data.get('dueno', '') == request.auth.token.email);
+    }
+    function estudioActivo(e) {
+      return get(/databases/$(database)/documents/estudios/$(e)).data.activo == true;
+    }
+    function respuestaValida(r) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['Sesion', 'Valuador', 'Orden', 'CodigoProducto', 'valores', 'ts', 'tsCliente', 'def'])
+        && d.keys().hasAll(['Sesion', 'Valuador', 'Orden', 'CodigoProducto', 'valores', 'ts'])
+        && d.Sesion is string && d.Sesion.size() <= 20
+        && d.Valuador is string && d.Valuador.size() <= 20
+        && d.Orden is int && d.Orden >= 1 && d.Orden <= 100
+        && d.CodigoProducto is string && d.CodigoProducto.size() <= 10
+        && d.valores is map && d.valores.size() <= 300
+        && (!('def' in d) || (d.def is map && d.def.size() <= 300))
+        && d.ts == request.time
+        && r == d.Valuador + '_' + d.Sesion + '_' + string(d.Orden);
+    }
+
+    // ---- administradores (id del documento = email)
+    match /admins/{email} {
+      allow get: if esSuper() || (autenticado() && request.auth.token.email == email);
+      allow list: if esSuper();
+      allow create: if (esSuper() && request.resource.data.get('rol', '') in ['admin', 'super'])
+        || (autenticado() && request.auth.token.email == email
+            && request.resource.data.get('rol', 'super') == 'super'
+            && !exists(/databases/$(database)/documents/meta/setup)
+            && getAfter(/databases/$(database)/documents/meta/setup).data.listo == true);
+      allow update: if esSuper() && request.auth.token.email != email
+        && request.resource.data.get('rol', '') in ['admin', 'super'];
+      allow delete: if esSuper() && request.auth.token.email != email;
+    }
+    match /meta/setup {
+      allow read: if true;
+      allow create: if autenticado()
+        && !exists(/databases/$(database)/documents/meta/setup)
+        && existsAfter(/databases/$(database)/documents/admins/$(request.auth.token.email))
+        && request.resource.data.keys().hasOnly(['listo']) && request.resource.data.listo == true;
+      allow update, delete: if false;
+    }
+
+    // ---- estudios
+    match /estudios/{e} {
+      allow read: if true;
+      allow create: if esAdmin() && request.resource.data.get('dueno', '') == request.auth.token.email;
+      allow update: if puedeVer(e) && request.resource.data.get('dueno', '') == resource.data.get('dueno', '')
+        && (esSuper() || request.resource.data.get('compartido', []) == resource.data.get('compartido', []));
+      allow delete: if puedeVer(e);
+
+      match /publico/{d} {
+        allow read: if true;
+        allow write: if puedeEscribir(e);
+      }
+      match /privado/{d} {
+        allow read: if puedeLeer(e);
+        allow write: if puedeEscribir(e);
+      }
+      match /respuestas/{r} {
+        allow read: if puedeLeer(e);
+        allow delete: if puedeVer(e);
+        allow create, update: if estudioActivo(e) && respuestaValida(r);
+      }
+      match /progreso/{v} {
+        allow read: if true;
+        allow create, update: if estudioActivo(e) && v.size() <= 20 && request.resource.data.size() <= 300;
+        allow delete: if puedeVer(e);
+      }
+    }
+  
+    // ================================================================
+    // ---- paneles (app "panel": análisis descriptivo cuantitativo con la vista de LibreSense-R)
+    // Mismos administradores que LibreSense. Un administrador ve y maneja sus paneles (campo "dueno");
+    // el administrador total, todos. Los panelistas (sin cuenta) leen el panel y su diseño público
+    // (sin nombres de vinos si se eligió un código) y escriben respuestas solo si el panel está abierto.
+    function puedeVerPanel(p) {
+      return esSuper() || (esAdmin()
+        && get(/databases/$(database)/documents/paneles/$(p)).data.get('dueno', '') == request.auth.token.email);
+    }
+    function puedeEscribirPanel(p) {
+      return esSuper() || (esAdmin()
+        && getAfter(/databases/$(database)/documents/paneles/$(p)).data.get('dueno', '') == request.auth.token.email);
+    }
+    function panelActivo(p) {
+      return get(/databases/$(database)/documents/paneles/$(p)).data.activo == true;
+    }
+    function respuestaPanelValida(r) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['Valuador', 'Orden', 'Etiqueta', 'valores', 'ts', 'tsCliente'])
+        && d.keys().hasAll(['Valuador', 'Orden', 'Etiqueta', 'valores', 'ts'])
+        && d.Valuador is string && d.Valuador.size() > 0 && d.Valuador.size() <= 40
+        && d.Orden is int && d.Orden >= 1 && d.Orden <= 500
+        && d.Etiqueta is string && d.Etiqueta.size() <= 100
+        && d.valores is map && d.valores.size() <= 100
+        && d.ts == request.time
+        && r == d.Valuador + '_' + string(d.Orden);
+    }
+    match /paneles/{p} {
+      allow read: if true;
+      allow create: if esAdmin() && request.resource.data.get('dueno', '') == request.auth.token.email;
+      allow update: if puedeVerPanel(p) && request.resource.data.get('dueno', '') == resource.data.get('dueno', '');
+      allow delete: if puedeVerPanel(p);
+
+      match /publico/{d} {
+        allow read: if true;
+        allow write: if puedeEscribirPanel(p);
+      }
+      match /privado/{d} {
+        allow read: if puedeVerPanel(p);
+        allow write: if puedeEscribirPanel(p);
+      }
+      match /respuestas/{r} {
+        allow read: if puedeVerPanel(p);
+        allow delete: if puedeVerPanel(p);
+        allow create, update: if panelActivo(p) && respuestaPanelValida(r);
+      }
+      match /progreso/{v} {
+        allow read: if true;
+        allow delete: if puedeVerPanel(p);
+        allow create, update: if panelActivo(p) && v.size() <= 40
+          && request.resource.data.keys().hasOnly(['hechos']) && request.resource.data.hechos is list
+          && request.resource.data.hechos.size() <= 500;
+      }
+    }
+  }
+}

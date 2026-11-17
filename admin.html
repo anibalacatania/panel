@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="robots" content="noindex"/>
+  <title>LibreSense · Paneles</title>
+  <script src="vendor/js/jquery.min.js"></script>
+  <link href="vendor/css/shiny.min.css" rel="stylesheet"/>
+  <link href="vendor/css/bootstrap.min.css" rel="stylesheet"/>
+  <script src="vendor/js/bootstrap.min.js"></script>
+  <script src="vendor/js/qrcode.js"></script>
+  <style>
+    .panel-fila { border: 1px solid #ddd; border-radius: 4px; padding: 12px 15px; margin-bottom: 12px; }
+    .panel-fila h4 { margin: 0 0 6px 0; }
+    .panel-fila .acciones .btn { margin: 3px 4px 3px 0; }
+    .progreso-tabla td, .progreso-tabla th { padding: 2px 8px !important; text-align: center; }
+    .ok { color: #3c763d; font-weight: bold; }
+    .vista-previa { max-height: 260px; overflow: auto; }
+    .link-panel { font-family: monospace; font-size: 12px; }
+    @media print { .no-imprimir { display: none !important; } }
+    #qr-grande svg { width: 100%; max-width: 420px; height: auto; }
+  </style>
+</head>
+<body>
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-sm-2 no-imprimir">
+      <form class="well" role="complementary">
+        <img src="https://inta.gob.ar/sites/default/files/inta_solo_0.jpg" height="100" width="100" alt=""/>
+        <h6>LibreSense</h6>
+        <em><h6>https://github.com/ anibalacatania/LibreSense</h6></em>
+        <h6>catania.anibal@inta.gob.ar</h6>
+        <h5>INTA EEA Mendoza</h5>
+        <hr/>
+        <div id="sesion"></div>
+      </form>
+    </div>
+    <div class="col-sm-10" role="main" id="principal">
+      <h1>Paneles</h1>
+      <p>Cargando…</p>
+    </div>
+  </div>
+</div>
+<script type="module" src="js/admin.js"></script>
+</body>
+</html>
