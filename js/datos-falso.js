@@ -55,3 +55,17 @@ export async function crearPanel(email, datos, filas) {
 export async function actualizarPanel(p, c) { const s = leer(); Object.assign(s.paneles[p].panel, c); escribir(s); }
 export async function borrarDatos(p) { const s = leer(); s.paneles[p].respuestas = {}; s.paneles[p].progreso = {}; escribir(s); }
 export async function borrarPanel(p) { const s = leer(); delete s.paneles[p]; escribir(s); }
+export async function estimarUso() {
+  const { tamanoDoc, inicioDiaPacifico } = await import('./tamano.js');
+  let bytes = 0, docs = 0, escriturasHoy = 0;
+  const desde = inicioDiaPacifico();
+  for (const [id, x] of Object.entries(leer().paneles)) {
+    const s = (r, d) => { const t = tamanoDoc(r, d); bytes += t.doc + t.indices; docs++; };
+    s(['paneles', id], x.panel);
+    s(['paneles', id, 'publico', 'diseno'], { filas: x.filas.map(f => [f.Valuador, f.Orden, f.Etiqueta].join('|')) });
+    s(['paneles', id, 'privado', 'diseno'], { filas: x.filas.map(f => Object.values(f).join('|')) });
+    for (const [k, r] of Object.entries(x.respuestas)) { s(['paneles', id, 'respuestas', k], r); if (r.ts.seconds * 1000 >= +desde) escriturasHoy += 2; }
+    for (const [k, h] of Object.entries(x.progreso)) s(['paneles', id, 'progreso', k], { hechos: h });
+  }
+  return { bytes, docs, escriturasHoy, parcial: false, desde };
+}

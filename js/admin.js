@@ -57,10 +57,46 @@ function pantallaPrincipal() {
       <li><a href="#t-nuevo" data-toggle="tab">Nuevo panel</a></li>
     </ul>
     <div class="tab-content">
-      <div class="tab-pane active" id="t-lista"><br/><div id="lista"><p>Cargando…</p></div></div>
+      <div class="tab-pane active" id="t-lista"><br/><div id="uso"></div><div id="lista"><p>Cargando…</p></div></div>
       <div class="tab-pane" id="t-nuevo"><br/>${formularioNuevo()}</div>
     </div>`);
   conectarFormulario();
+  dibujarUso();
+}
+
+// ----------------------------------------------------------------- uso de Firebase (plan gratuito Spark)
+const consolaUso = 'https://console.firebase.google.com/project/panel-sensorial-ef729/firestore/databases/-default-/usage';
+const fmtBytes = b => b < 1024 ** 2 ? (b / 1024).toFixed(0) + ' KB' : (b / 1024 ** 2).toFixed(b < 10 * 1024 ** 2 ? 2 : 1) + ' MB';
+const barra = (pct) => {
+  const c = pct < 60 ? 'progress-bar-success' : pct < 85 ? 'progress-bar-warning' : 'progress-bar-danger';
+  return `<div class="progress" style="margin-bottom:4px"><div class="progress-bar ${c}" role="progressbar" style="width:${Math.max(pct, 0.5).toFixed(1)}%;min-width:2.5em">${pct < 1 ? '<1' : pct.toFixed(0)}%</div></div>`;
+};
+var calculandoUso = false;   // var: se usa antes de esta línea al iniciar
+async function dibujarUso() {
+  const $u = $('#uso');
+  if (!$u.length || calculandoUso) return;
+  calculandoUso = true;
+  $u.html(`<div class="panel panel-default"><div class="panel-body text-muted">Calculando el uso de Firebase…</div></div>`);
+  try {
+    const { LIMITES } = await import('./tamano.js');
+    const u = await D.estimarUso();
+    const pa = (100 * u.bytes) / LIMITES.almacenamiento, pe = (100 * u.escriturasHoy) / LIMITES.escrituras;
+    const reinicio = new Date(u.desde.getTime() + 24 * 3600 * 1000).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const libres = Math.floor((LIMITES.escrituras - u.escriturasHoy) / 2);
+    $u.html(`<div class="panel panel-default"><div class="panel-heading"><b>Uso de Firebase</b> (plan gratuito)
+        <button type="button" class="btn btn-default btn-xs pull-right" id="uso-actualizar">Actualizar</button></div>
+      <div class="panel-body"><div class="row">
+        <div class="col-sm-6"><b>Almacenamiento</b> (estimado): ${fmtBytes(u.bytes)} de 1 GB · ${u.docs.toLocaleString('es-AR')} documentos
+          ${barra(pa)}<small class="text-muted">Lugar para unas ${Math.floor((LIMITES.almacenamiento - u.bytes) / Math.max(1, u.bytes / Math.max(1, u.docs)) / 1000).toLocaleString('es-AR')} mil documentos más</small></div>
+        <div class="col-sm-6"><b>Escrituras de hoy</b> (aprox.): ${u.escriturasHoy.toLocaleString('es-AR')} de 20.000
+          ${barra(pe)}<small class="text-muted">Quedan para unas ${Math.max(0, libres).toLocaleString('es-AR')} respuestas más hoy · se reinicia a las ${reinicio} h</small></div>
+      </div>
+      <small class="text-muted">Incluye paneles y estudios de LibreSense (comparten la base).${u.parcial ? ' <b>Parcial:</b> hay datos que esta cuenta no puede leer.' : ''}
+        Cifras exactas: <a href="${consolaUso}" target="_blank" rel="noopener">uso en la consola de Firebase</a>.</small></div></div>`);
+    $('#uso-actualizar').on('click', dibujarUso);
+  } catch (e) {
+    $u.html(`<div class="alert alert-warning">No se pudo calcular el uso de Firebase (${esc(e.message)}). <a href="${consolaUso}" target="_blank" rel="noopener">Ver en la consola</a>.</div>`);
+  } finally { calculandoUso = false; }
 }
 
 // ----------------------------------------------------------------- nuevo panel
@@ -138,6 +174,7 @@ function conectarFormulario() {
         panelistas: d.valuadores, nMuestras: d.filas.length,
       }, d.filas);
       showNotification('Panel creado y abierto.', 'message');
+      setTimeout(dibujarUso, 1500);
       $('#n-nombre').val(''); $('#n-diseno').val(''); $('#n-atrib').val(''); previa = null;
       $('#n-previa').html('');
       $('a[href="#t-lista"]').tab('show');
@@ -265,12 +302,12 @@ $(document).on('click', '.panel-fila [data-a]', async function (ev) {
       if (n && n.trim()) await D.actualizarPanel(id, { nombre: n.trim() });
     } else if (a === 'borrar-datos') {
       if (prompt(`Se borran TODAS las respuestas de "${x.nombre}" (el diseño y el link se mantienen).\nEscriba BORRAR para confirmar.`) === 'BORRAR') {
-        await D.borrarDatos(id); showNotification('Respuestas borradas.', 'message');
+        await D.borrarDatos(id); showNotification('Respuestas borradas.', 'message'); dibujarUso();
       }
     } else if (a === 'borrar') {
       if (prompt(`Se borra el panel "${x.nombre}" con todas sus respuestas.\nEscriba BORRAR para confirmar.`) === 'BORRAR') {
         if (oyentesProg[id]) { oyentesProg[id](); delete oyentesProg[id]; }
-        await D.borrarPanel(id); showNotification('Panel borrado.', 'message');
+        await D.borrarPanel(id); showNotification('Panel borrado.', 'message'); dibujarUso();
       }
     }
   } catch (e) {

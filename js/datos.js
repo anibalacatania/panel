@@ -146,3 +146,50 @@ export async function borrarPanel(p) {
   await b.commit();
   await F.deleteDoc(pan(p));
 }
+
+// ------------------------------------------------------------- uso del plan gratuito (estimado)
+// Firestore no informa el espacio usado a la página: se estima contando documentos (consultas de conteo,
+// muy baratas) y midiendo una muestra de cada colección. Incluye LibreSense (estudios), que comparte la base.
+export async function estimarUso() {
+  const { tamanoDoc, inicioDiaPacifico } = await import('./tamano.js');
+  const desde = F.Timestamp.fromDate(inicioDiaPacifico());
+  let bytes = 0, docs = 0, escriturasHoy = 0, parcial = false;
+  const sumar = (ruta, datos) => { const t = tamanoDoc(ruta, datos); bytes += t.doc + t.indices; docs++; };
+  // colección grande: cantidad exacta × tamaño medio de una muestra
+  async function coleccion(ruta, conHoy) {
+    try {
+      const ref = F.collection(db, ...ruta);
+      const [n, muestra] = await Promise.all([
+        F.getCountFromServer(ref),
+        F.getDocs(F.query(ref, F.limit(10))),
+      ]);
+      const total = n.data().count;
+      if (total && muestra.size) {
+        const medio = muestra.docs.reduce((s, d) => { const t = tamanoDoc([...ruta, d.id], d.data()); return s + t.doc + t.indices; }, 0) / muestra.size;
+        bytes += medio * total; docs += total;
+      }
+      if (conHoy && total) {
+        const h = await F.getCountFromServer(F.query(ref, F.where('ts', '>=', desde)));
+        escriturasHoy += 2 * h.data().count;   // cada respuesta escribe la respuesta y el progreso
+      }
+    } catch (e) { parcial = true; }
+  }
+  async function unDoc(ruta) {
+    try { const d = await F.getDoc(F.doc(db, ...ruta)); if (d.exists()) sumar(ruta, d.data()); }
+    catch (e) { parcial = true; }
+  }
+  for (const raiz of ['paneles', 'estudios']) {
+    let lista;
+    try { lista = await F.getDocs(F.collection(db, raiz)); } catch (e) { parcial = true; continue; }
+    await Promise.all(lista.docs.map(async d => {
+      sumar([raiz, d.id], d.data());
+      await Promise.all([
+        unDoc([raiz, d.id, 'publico', 'diseno']),
+        unDoc([raiz, d.id, 'privado', 'diseno']),
+        coleccion([raiz, d.id, 'respuestas'], true),
+        coleccion([raiz, d.id, 'progreso'], false),
+      ]);
+    }));
+  }
+  return { bytes, docs, escriturasHoy, parcial, desde: desde.toDate() };
+}
