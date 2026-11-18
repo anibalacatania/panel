@@ -38,7 +38,7 @@ Se actualiza en vivo a medida que llegan las respuestas.
 2. Repetir para cada grupo (por ejemplo 9 paneles = 9 links/QR distintos, todos abiertos a la vez).
 3. Arriba de la lista, **Uso de Firebase**: almacenamiento estimado (de 1 GB) y escrituras del día (de 20.000,
    se reinician a la medianoche del Pacífico), sumando paneles y estudios de LibreSense. Es una estimación hecha
-   desde la página; las cifras exactas están en la consola de Firebase (Firestore → Usage).
+   desde la página; las cifras exactas están en la consola de Firebase (⚙ → Usage and billing).
 4. En la lista: **Tablero**, **QR**, **Progreso** (muestras por panelista), **Descargar**
    (CSV para R, CSV para Excel, carpeta `Answers/` en .zip para correr `run_board()` en R, diseño con códigos),
    **Cerrar/Abrir**, **Renombrar**, **Borrar respuestas**, **Borrar panel**.

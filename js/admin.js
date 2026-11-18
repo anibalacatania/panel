@@ -65,7 +65,7 @@ function pantallaPrincipal() {
 }
 
 // ----------------------------------------------------------------- uso de Firebase (plan gratuito Spark)
-const consolaUso = 'https://console.firebase.google.com/project/panel-sensorial-ef729/firestore/databases/-default-/usage';
+const consolaUso = 'https://console.firebase.google.com/project/panel-sensorial-ef729/usage';
 const fmtBytes = b => b < 1024 ** 2 ? (b / 1024).toFixed(0) + ' KB' : (b / 1024 ** 2).toFixed(b < 10 * 1024 ** 2 ? 2 : 1) + ' MB';
 const barra = (pct) => {
   const c = pct < 60 ? 'progress-bar-success' : pct < 85 ? 'progress-bar-warning' : 'progress-bar-danger';
