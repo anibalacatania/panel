@@ -2,7 +2,10 @@
 // Aplicación del panelista: igual a run_panel() de LibreSense-R
 // =====================================================================
 /* global $ */
-import { showNotification, showModal, removeModal, sliderInput, checkboxInput, selectInput, esc } from './shiny.js';
+import { showNotification, showModal, removeModal, sliderInput, checkboxInput, selectInput, selectNativo, esTactil, esc } from './shiny.js';
+
+// lista para elegir panel o panelista: nativa en pantallas táctiles (iPhone), selectize en computadora
+const lista = (...a) => (esTactil() ? selectNativo(...a) : selectInput(...a));
 
 const demo = new URLSearchParams(location.search).has('demo');
 const D = await import(demo ? './datos-falso.js' : './datos.js');
@@ -28,7 +31,7 @@ async function elegirPanel() {
   if (!activos.length) { mensaje('No hay paneles abiertos en este momento.'); return null; }
   if (activos.length === 1) return activos[0].id;
   return new Promise(res => {
-    const sel = selectInput('panel_sel', 'Panel', activos.map(a => a.nombre));
+    const sel = lista('panel_sel', 'Panel', activos.map(a => a.nombre));
     const btn = $('<button id="submitPanel" type="button" class="btn btn-default action-button">Enviar</button>');
     showModal({ title: 'Bienvenida/o', body: [sel.el, btn], size: 's' });
     sel.iniciar();
@@ -44,7 +47,7 @@ async function elegirPanel() {
 // Pide el nombre del panelista (username_modal de run_panel).
 function usernameModal(fixed) {
   let inp;
-  if (fixed.length) inp = selectInput('username', 'Tu nombre (es tu identificador)', fixed);
+  if (fixed.length) inp = lista('username', 'Tu nombre (es tu identificador)', fixed);
   else {
     inp = { el: $(`<div class="form-group shiny-input-container"><label class="control-label" id="username-label" for="username">Tu nombre (es tu identificador)</label><input id="username" type="text" class="form-control" value=""/></div>`) };
     inp.valor = () => inp.el.find('input').val().trim();

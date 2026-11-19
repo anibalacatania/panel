@@ -101,3 +101,17 @@ export function selectInput(id, label, choices = [], { multiple = false, create 
     reset: () => iniciar().clear(true),
   };
 }
+
+// Pantalla táctil (celulares y tablets, iPhone incluido).
+export const esTactil = () => window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window;
+
+// selectInput(selectize = FALSE): lista nativa del teléfono. En el iPhone la lista de selectize dentro
+// de una ventana emergente abre el teclado y hace saltar la página; la nativa abre la ruedita del sistema.
+export function selectNativo(id, label, choices = []) {
+  const $c = $(`<div class="form-group shiny-input-container">
+    <label class="control-label" id="${id}-label" for="${id}">${esc(label)}</label>
+    <div><select id="${id}" class="form-control" style="text-align:center;text-align-last:center;font-size:16px;height:36px;color:#333">
+      ${choices.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></div>
+  </div>`);
+  return { el: $c, iniciar: () => null, valor: () => $c.find('select').val(), reset: () => {} };
+}
